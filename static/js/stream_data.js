@@ -1,21 +1,97 @@
-var Dict = require('./dict').Dict;
+const IntDict = require('./int_dict').IntDict;
+const FoldDict = require('./fold_dict').FoldDict;
+const LazySet = require('./lazy_set').LazySet;
 
-var stream_data = (function () {
+const BinaryDict = function (pred) {
+    /*
+      A dictionary that keeps track of which objects had the predicate
+      return true or false for efficient lookups and iteration.
 
-var exports = {};
+      This class is an optimization for managing subscriptions.
+      Typically you only subscribe to a small minority of streams, and
+      most common operations want to efficiently iterate through only
+      streams where the current user is subscribed:
 
+            - search bar search
+            - build left sidebar
+            - autocomplete #stream_links
+            - autocomplete stream in compose
+    */
+
+    const self = {};
+    self.trues = new FoldDict();
+    self.falses = new FoldDict();
+
+    self.true_values = function () {
+        return self.trues.values();
+    };
+
+    self.num_true_items = function () {
+        return self.trues.num_items();
+    };
+
+    self.false_values = function () {
+        return self.falses.values();
+    };
+
+    self.values = function () {
+        const trues = self.trues.values();
+        const falses = self.falses.values();
+        const both = trues.concat(falses);
+        return both;
+    };
+
+    self.get = function (k) {
+        const res = self.trues.get(k);
+
+        if (res !== undefined) {
+            return res;
+        }
+
+        return self.falses.get(k);
+    };
+
+    self.set = function (k, v) {
+        if (pred(v)) {
+            self.set_true(k, v);
+        } else {
+            self.set_false(k, v);
+        }
+    };
+
+    self.set_true = function (k, v) {
+        self.falses.del(k);
+        self.trues.set(k, v);
+    };
+
+    self.set_false = function (k, v) {
+        self.trues.del(k);
+        self.falses.set(k, v);
+    };
+
+    self.del = function (k) {
+        self.trues.del(k);
+        self.falses.del(k);
+    };
+
+
+    return self;
+};
 
 // The stream_info variable maps stream names to stream properties objects
 // Call clear_subscriptions() to initialize it.
-var stream_info;
-var subs_by_stream_id;
-var filter_out_inactives = false;
+let stream_info;
+let subs_by_stream_id;
+let filter_out_inactives = false;
 
-var stream_ids_by_name = new Dict({fold_case: true});
+const stream_ids_by_name = new FoldDict();
+const default_stream_ids = new Set();
 
 exports.clear_subscriptions = function () {
-    stream_info = new Dict({fold_case: true});
-    subs_by_stream_id = new Dict();
+    stream_info = new BinaryDict(function (sub) {
+        return sub.subscribed;
+    });
+    subs_by_stream_id = new IntDict();
 };
 
 exports.clear_subscriptions();
@@ -23,7 +99,7 @@ exports.clear_subscriptions();
 exports.set_filter_out_inactives = function () {
     if (page_params.demote_inactive_streams ===
             settings_display.demote_inactive_streams_values.automatic.code) {
-        filter_out_inactives = exports.subscribed_subs().length >= 30;
+        filter_out_inactives = exports.num_subscribed_subs() >= 30;
     } else if (page_params.demote_inactive_streams ===
             settings_display.demote_inactive_streams_values.always.code) {
         filter_out_inactives = true;
@@ -38,7 +114,6 @@ exports.is_filtering_inactives = function () {
 };
 
 exports.is_active = function (sub) {
-    exports.set_filter_out_inactives();
     if (!filter_out_inactives || sub.pin_to_top) {
         // If users don't want to filter inactive streams
         // to the bottom, we respect that setting and don't
@@ -53,7 +128,7 @@ exports.is_active = function (sub) {
 };
 
 exports.rename_sub = function (sub, new_name) {
-    var old_name = sub.name;
+    const old_name = sub.name;
 
     stream_ids_by_name.set(old_name, sub.stream_id);
 
@@ -63,23 +138,37 @@ exports.rename_sub = function (sub, new_name) {
 };
 
 exports.subscribe_myself = function (sub) {
-    var user_id = people.my_current_user_id();
+    const user_id = people.my_current_user_id();
     exports.add_subscriber(sub.name, user_id);
     sub.subscribed = true;
     sub.newly_subscribed = true;
+    stream_info.set_true(sub.name, sub);
+};
+
+exports.is_subscriber_subset = function (sub1, sub2) {
+    if (sub1.subscribers && sub2.subscribers) {
+        const sub2_set = sub2.subscribers;
+
+        return _.every(sub1.subscribers.keys(), (key) => {
+            return sub2_set.has(key);
+        });
+    }
+
+    return false;
 };
 
 exports.unsubscribe_myself = function (sub) {
     // Remove user from subscriber's list
-    var user_id = people.my_current_user_id();
+    const user_id = people.my_current_user_id();
     exports.remove_subscriber(sub.name, user_id);
     sub.subscribed = false;
     sub.newly_subscribed = false;
+    stream_info.set_false(sub.name, sub);
 };
 
 exports.add_sub = function (stream_name, sub) {
     if (!_.has(sub, 'subscribers')) {
-        sub.subscribers = Dict.from_array([]);
+        sub.subscribers = LazySet([]);
     }
 
     stream_info.set(stream_name, sub);
@@ -98,13 +187,13 @@ exports.get_stream_id = function (name) {
     // Note: Only use this function for situations where
     // you are comfortable with a user dealing with an
     // old name of a stream (from prior to a rename).
-    var sub = stream_info.get(name);
+    const sub = stream_info.get(name);
 
     if (sub) {
         return sub.stream_id;
     }
 
-    var stream_id = stream_ids_by_name.get(name);
+    const stream_id = stream_ids_by_name.get(name);
     return stream_id;
 };
 
@@ -113,13 +202,13 @@ exports.get_sub_by_name = function (name) {
     // you are comfortable with a user dealing with an
     // old name of a stream (from prior to a rename).
 
-    var sub = stream_info.get(name);
+    const sub = stream_info.get(name);
 
     if (sub) {
         return sub;
     }
 
-    var stream_id = stream_ids_by_name.get(name);
+    const stream_id = stream_ids_by_name.get(name);
 
     if (!stream_id) {
         return;
@@ -129,7 +218,7 @@ exports.get_sub_by_name = function (name) {
 };
 
 exports.id_to_slug = function (stream_id) {
-    var name = exports.maybe_get_stream_name(stream_id) || 'unknown';
+    let name = exports.maybe_get_stream_name(stream_id) || 'unknown';
 
     // The name part of the URL doesn't really matter, so we try to
     // make it pretty.
@@ -139,7 +228,7 @@ exports.id_to_slug = function (stream_id) {
 };
 
 exports.name_to_slug = function (name) {
-    var stream_id = exports.get_stream_id(name);
+    const stream_id = exports.get_stream_id(name);
 
     if (!stream_id) {
         return name;
@@ -153,10 +242,10 @@ exports.name_to_slug = function (name) {
 };
 
 exports.slug_to_name = function (slug) {
-    var m = /^([\d]+)-/.exec(slug);
+    const m = /^([\d]+)-/.exec(slug);
     if (m) {
-        var stream_id = m[1];
-        var sub = subs_by_stream_id.get(stream_id);
+        const stream_id = parseInt(m[1], 10);
+        const sub = subs_by_stream_id.get(stream_id);
         if (sub) {
             return sub.name;
         }
@@ -170,7 +259,7 @@ exports.slug_to_name = function (slug) {
 
 
 exports.delete_sub = function (stream_id) {
-    var sub = subs_by_stream_id.get(stream_id);
+    const sub = subs_by_stream_id.get(stream_id);
     if (!sub) {
         blueslip.warn('Failed to delete stream ' + stream_id);
         return;
@@ -180,11 +269,11 @@ exports.delete_sub = function (stream_id) {
 };
 
 exports.get_non_default_stream_names = function () {
-    var subs = stream_info.values();
+    let subs = stream_info.values();
     subs = _.reject(subs, function (sub) {
         return exports.is_default_stream_id(sub.stream_id) || !sub.subscribed && sub.invite_only;
     });
-    var names = _.pluck(subs, 'name');
+    const names = _.pluck(subs, 'name');
     return names;
 };
 
@@ -196,7 +285,7 @@ exports.get_updated_unsorted_subs = function () {
     // This function is expensive in terms of calculating
     // some values (particularly stream counts) but avoids
     // prematurely sorting subs.
-    var all_subs = stream_info.values();
+    let all_subs = stream_info.values();
 
     // Add in admin options and stream counts.
     _.each(all_subs, function (sub) {
@@ -213,12 +302,16 @@ exports.get_updated_unsorted_subs = function () {
     return all_subs;
 };
 
+exports.num_subscribed_subs = function () {
+    return stream_info.num_true_items();
+};
+
 exports.subscribed_subs = function () {
-    return _.where(stream_info.values(), {subscribed: true});
+    return stream_info.true_values();
 };
 
 exports.unsubscribed_subs = function () {
-    return _.where(stream_info.values(), {subscribed: false});
+    return stream_info.false_values();
 };
 
 exports.subscribed_streams = function () {
@@ -226,20 +319,20 @@ exports.subscribed_streams = function () {
 };
 
 exports.get_invite_stream_data = function () {
-    var filter_stream_data = function (sub) {
+    const filter_stream_data = function (sub) {
         return {
             name: sub.name,
             stream_id: sub.stream_id,
             invite_only: sub.invite_only,
-            default_stream: stream_data.get_default_status(sub.name),
+            default_stream: exports.get_default_status(sub.name),
         };
     };
-    var invite_stream_data = _.map(stream_data.subscribed_subs(), filter_stream_data);
-    var default_stream_data = _.map(page_params.realm_default_streams, filter_stream_data);
+    const invite_stream_data = _.map(exports.subscribed_subs(), filter_stream_data);
+    const default_stream_data = _.map(page_params.realm_default_streams, filter_stream_data);
 
     // Since, union doesn't work on array of objects we are using filter
-    var is_included = {};
-    var streams = _.filter(default_stream_data.concat(invite_stream_data), function (sub) {
+    const is_included = {};
+    const streams = _.filter(default_stream_data.concat(invite_stream_data), function (sub) {
         if (is_included[sub.name]) {
             return false;
         }
@@ -250,8 +343,8 @@ exports.get_invite_stream_data = function () {
 };
 
 exports.invite_streams = function () {
-    var invite_list = exports.subscribed_streams();
-    var default_list = _.pluck(page_params.realm_default_streams, 'name');
+    const invite_list = exports.subscribed_streams();
+    const default_list = _.pluck(page_params.realm_default_streams, 'name');
     return _.union(invite_list, default_list);
 };
 
@@ -260,7 +353,7 @@ exports.get_colors = function () {
 };
 
 exports.update_subscribers_count = function (sub) {
-    var count = sub.subscribers.num_items();
+    const count = sub.subscribers.num_items();
     sub.subscriber_count = count;
 };
 
@@ -269,7 +362,7 @@ exports.update_stream_email_address = function (sub, email) {
 };
 
 exports.get_subscriber_count = function (stream_name) {
-    var sub = exports.get_sub_by_name(stream_name);
+    const sub = exports.get_sub_by_name(stream_name);
     if (sub === undefined) {
         blueslip.warn('We got a get_subscriber_count count call for a non-existent stream.');
         return;
@@ -290,21 +383,25 @@ exports.update_stream_privacy = function (sub, values) {
 };
 
 exports.receives_notifications = function (stream_name, notification_name) {
-    var sub = exports.get_sub(stream_name);
+    const sub = exports.get_sub(stream_name);
     if (sub === undefined) {
         return false;
     }
     if (sub[notification_name] !== null) {
         return sub[notification_name];
     }
+    if (notification_name === 'wildcard_mentions_notify') {
+        return page_params[notification_name];
+    }
     return page_params["enable_stream_" + notification_name];
 };
 
-var stream_notification_settings = [
+const stream_notification_settings = [
     "desktop_notifications",
     "audible_notifications",
     "push_notifications",
     "email_notifications",
+    "wildcard_mentions_notify",
 ];
 
 exports.update_calculated_fields = function (sub) {
@@ -345,7 +442,7 @@ exports.all_subscribed_streams_are_in_home_view = function () {
 };
 
 exports.home_view_stream_names = function () {
-    var home_view_subs = _.filter(exports.subscribed_subs(), function (sub) {
+    const home_view_subs = _.filter(exports.subscribed_subs(), function (sub) {
         return !sub.is_muted;
     });
     return _.map(home_view_subs, function (sub) {
@@ -358,7 +455,7 @@ exports.canonicalized_name = function (stream_name) {
 };
 
 exports.get_color = function (stream_name) {
-    var sub = exports.get_sub(stream_name);
+    const sub = exports.get_sub(stream_name);
     if (sub === undefined) {
         return stream_color.default_color;
     }
@@ -366,7 +463,7 @@ exports.get_color = function (stream_name) {
 };
 
 exports.is_muted = function (stream_id) {
-    var sub = exports.get_sub_by_id(stream_id);
+    const sub = exports.get_sub_by_id(stream_id);
     // Return true for undefined streams
     if (sub === undefined) {
         return true;
@@ -375,7 +472,7 @@ exports.is_muted = function (stream_id) {
 };
 
 exports.is_stream_muted_by_name = function (stream_name) {
-    var sub = exports.get_sub(stream_name);
+    const sub = exports.get_sub(stream_name);
     // Return true for undefined streams
     if (sub === undefined) {
         return true;
@@ -389,17 +486,17 @@ exports.is_notifications_stream_muted = function () {
 };
 
 exports.is_subscribed = function (stream_name) {
-    var sub = exports.get_sub(stream_name);
+    const sub = exports.get_sub(stream_name);
     return sub !== undefined && sub.subscribed;
 };
 
 exports.id_is_subscribed = function (stream_id) {
-    var sub = subs_by_stream_id.get(stream_id);
+    const sub = subs_by_stream_id.get(stream_id);
     return sub !== undefined && sub.subscribed;
 };
 
 exports.get_invite_only = function (stream_name) {
-    var sub = exports.get_sub(stream_name);
+    const sub = exports.get_sub(stream_name);
     if (sub === undefined) {
         return false;
     }
@@ -407,7 +504,7 @@ exports.get_invite_only = function (stream_name) {
 };
 
 exports.get_announcement_only = function (stream_name) {
-    var sub = exports.get_sub(stream_name);
+    const sub = exports.get_sub(stream_name);
     if (sub === undefined) {
         return false;
     }
@@ -443,29 +540,27 @@ exports.all_topics_in_cache = function (sub) {
     // message ID in the stream; if it's older, we're good, otherwise,
     // we might be missing the oldest topics in this stream in our
     // cache.
-    var first_cached_message = message_list.all.first();
+    const first_cached_message = message_list.all.first();
     return first_cached_message.id <= sub.first_message_id;
 };
-
-var default_stream_ids = new Dict();
 
 exports.set_realm_default_streams = function (realm_default_streams) {
     page_params.realm_default_streams = realm_default_streams;
     default_stream_ids.clear();
 
     realm_default_streams.forEach(function (stream) {
-        default_stream_ids.set(stream.stream_id, true);
+        default_stream_ids.add(stream.stream_id);
     });
 };
 
 exports.get_default_stream_names = function () {
-    var streams = _.map(default_stream_ids.keys(), exports.get_sub_by_id);
-    var default_stream_names = _.pluck(streams, 'name');
+    const streams = _.map(Array.from(default_stream_ids), exports.get_sub_by_id);
+    const default_stream_names = _.pluck(streams, 'name');
     return default_stream_names;
 };
 
 exports.get_default_status = function (stream_name) {
-    var stream_id = exports.get_stream_id(stream_name);
+    const stream_id = exports.get_stream_id(stream_name);
 
     if (!stream_id) {
         return false;
@@ -487,7 +582,7 @@ exports.get_name = function (stream_name) {
     //
     // This function will also do the right thing if we have
     // an old stream name in memory for a recently renamed stream.
-    var sub = exports.get_sub_by_name(stream_name);
+    const sub = exports.get_sub_by_name(stream_name);
     if (sub === undefined) {
         return stream_name;
     }
@@ -498,7 +593,7 @@ exports.maybe_get_stream_name = function (stream_id) {
     if (!stream_id) {
         return;
     }
-    var stream = exports.get_sub_by_id(stream_id);
+    const stream = exports.get_sub_by_id(stream_id);
 
     if (!stream) {
         return;
@@ -508,27 +603,27 @@ exports.maybe_get_stream_name = function (stream_id) {
 };
 
 exports.set_subscribers = function (sub, user_ids) {
-    sub.subscribers = Dict.from_array(user_ids || []);
+    sub.subscribers = LazySet(user_ids || []);
 };
 
 exports.add_subscriber = function (stream_name, user_id) {
-    var sub = exports.get_sub(stream_name);
+    const sub = exports.get_sub(stream_name);
     if (typeof sub === 'undefined') {
         blueslip.warn("We got an add_subscriber call for a non-existent stream.");
         return false;
     }
-    var person = people.get_person_from_user_id(user_id);
+    const person = people.get_person_from_user_id(user_id);
     if (person === undefined) {
         blueslip.error("We tried to add invalid subscriber: " + user_id);
         return false;
     }
-    sub.subscribers.set(user_id, true);
+    sub.subscribers.add(user_id);
 
     return true;
 };
 
 exports.remove_subscriber = function (stream_name, user_id) {
-    var sub = exports.get_sub(stream_name);
+    const sub = exports.get_sub(stream_name);
     if (typeof sub === 'undefined') {
         blueslip.warn("We got a remove_subscriber call for a non-existent stream " + stream_name);
         return false;
@@ -544,7 +639,7 @@ exports.remove_subscriber = function (stream_name, user_id) {
 };
 
 exports.is_user_subscribed = function (stream_name, user_id) {
-    var sub = exports.get_sub(stream_name);
+    const sub = exports.get_sub(stream_name);
     if (typeof sub === 'undefined' || !sub.can_access_subscribers) {
         // If we don't know about the stream, or we ourselves cannot access subscriber list,
         // so we return undefined (treated as falsy if not explicitly handled).
@@ -562,7 +657,7 @@ exports.is_user_subscribed = function (stream_name, user_id) {
 exports.create_streams = function (streams) {
     _.each(streams, function (stream) {
         // We handle subscriber stuff in other events.
-        var attrs = _.defaults(stream, {
+        const attrs = _.defaults(stream, {
             subscribers: [],
             subscribed: false,
         });
@@ -571,7 +666,7 @@ exports.create_streams = function (streams) {
 };
 
 exports.create_sub_from_server_data = function (stream_name, attrs) {
-    var sub = exports.get_sub(stream_name);
+    let sub = exports.get_sub(stream_name);
     if (sub !== undefined) {
         // We've already created this subscription, no need to continue.
         return sub;
@@ -590,7 +685,7 @@ exports.create_sub_from_server_data = function (stream_name, attrs) {
     // a copy of the object with `_.omit(attrs, 'subscribers')`, but `_.omit` is
     // slow enough to show up in timings when you have 1000s of streams.
 
-    var subscriber_user_ids = attrs.subscribers;
+    const subscriber_user_ids = attrs.subscribers;
 
     delete attrs.subscribers;
 
@@ -630,8 +725,8 @@ exports.get_streams_for_settings_page = function () {
     //       for that.  Also we may be revisiting that UI.
 
     // Build up our list of subscribed streams from the data we already have.
-    var subscribed_rows = exports.subscribed_subs();
-    var unsubscribed_rows = exports.unsubscribed_subs();
+    const subscribed_rows = exports.subscribed_subs();
+    const unsubscribed_rows = exports.unsubscribed_subs();
 
     // Sort and combine all our streams.
     function by_name(a, b) {
@@ -639,7 +734,7 @@ exports.get_streams_for_settings_page = function () {
     }
     subscribed_rows.sort(by_name);
     unsubscribed_rows.sort(by_name);
-    var all_subs = unsubscribed_rows.concat(subscribed_rows);
+    const all_subs = unsubscribed_rows.concat(subscribed_rows);
 
     // Add in admin options and stream counts.
     _.each(all_subs, function (sub) {
@@ -654,7 +749,7 @@ exports.sort_for_stream_settings = function (stream_ids) {
     //       which uses Intl.Collator() when possible.
 
     function name(stream_id) {
-        var sub = stream_data.get_sub_by_id(stream_id);
+        const sub = exports.get_sub_by_id(stream_id);
         if (!sub) {
             return '';
         }
@@ -662,8 +757,8 @@ exports.sort_for_stream_settings = function (stream_ids) {
     }
 
     function by_stream_name(id_a, id_b) {
-        var stream_a_name = name(id_a);
-        var stream_b_name = name(id_b);
+        const stream_a_name = name(id_a);
+        const stream_b_name = name(id_b);
         return String.prototype.localeCompare.call(stream_a_name, stream_b_name);
     }
 
@@ -676,7 +771,7 @@ exports.get_streams_for_admin = function () {
         return util.strcmp(a.name, b.name);
     }
 
-    var subs = stream_info.values();
+    const subs = stream_info.values();
 
     subs.sort(by_name);
 
@@ -688,7 +783,7 @@ exports.initialize = function () {
 
     function populate_subscriptions(subs, subscribed, previously_subscribed) {
         subs.forEach(function (sub) {
-            var stream_name = sub.name;
+            const stream_name = sub.name;
             sub.subscribed = subscribed;
             sub.previously_subscribed = previously_subscribed;
 
@@ -705,7 +800,7 @@ exports.initialize = function () {
     // Migrate the notifications stream from the new API structure to
     // what the frontend expects.
     if (page_params.realm_notifications_stream_id !== -1) {
-        var notifications_stream_obj =
+        const notifications_stream_obj =
             exports.get_sub_by_id(page_params.realm_notifications_stream_id);
         if (notifications_stream_obj) {
             // This happens when the notifications stream is a private
@@ -733,13 +828,7 @@ exports.remove_default_stream = function (stream_id) {
             return stream.stream_id === stream_id;
         }
     );
-    default_stream_ids.del(stream_id);
+    default_stream_ids.delete(stream_id);
 };
 
-return exports;
-
-}());
-if (typeof module !== 'undefined') {
-    module.exports = stream_data;
-}
-window.stream_data = stream_data;
+window.stream_data = exports;

@@ -7,15 +7,17 @@ from typing import Any, Callable, Dict, Iterable, List, \
 import ujson
 from datetime import datetime
 from django.conf import settings
+from django.contrib.sessions.models import Session
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandParser
 from django.db.models import F, Max
 from django.utils.timezone import now as timezone_now
 from django.utils.timezone import timedelta as timezone_timedelta
+import pylibmc
 
 from zerver.lib.actions import STREAM_ASSIGNMENT_COLORS, check_add_realm_emoji, \
-    do_change_is_admin, do_send_messages, do_update_user_custom_profile_data, \
-    try_add_realm_custom_profile_field
+    do_change_is_admin, do_send_messages, do_update_user_custom_profile_data_if_changed, \
+    try_add_realm_custom_profile_field, try_add_realm_default_custom_profile_field
 from zerver.lib.bulk_create import bulk_create_streams, bulk_create_users
 from zerver.lib.cache import cache_set
 from zerver.lib.generate_test_data import create_test_data
@@ -28,7 +30,7 @@ from zerver.lib.user_groups import create_user_group
 from zerver.lib.utils import generate_api_key
 from zerver.models import CustomProfileField, DefaultStream, Message, Realm, RealmAuditLog, \
     RealmDomain, Recipient, Service, Stream, Subscription, \
-    UserMessage, UserPresence, UserProfile, clear_database, \
+    UserMessage, UserPresence, UserProfile, Huddle, Client, \
     email_to_username, get_client, get_huddle, get_realm, get_stream, \
     get_system_bot, get_user, get_user_profile_by_id
 from zerver.lib.types import ProfileFieldData
@@ -39,9 +41,31 @@ settings.TORNADO_SERVER = None
 # Disable using memcached caches to avoid 'unsupported pickle
 # protocol' errors if `populate_db` is run with a different Python
 # from `run-dev.py`.
+default_cache = settings.CACHES['default']
 settings.CACHES['default'] = {
     'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'
 }
+
+def clear_database() -> None:
+    # Hacky function only for use inside populate_db.  Designed to
+    # allow running populate_db repeatedly in series to work without
+    # flushing memcached or clearing the database manually.
+
+    # With `zproject.test_settings`, we aren't using real memcached
+    # and; we only need to flush memcached if we're populating a
+    # database that would be used with it (i.e. zproject.dev_settings).
+    if default_cache['BACKEND'] == 'django_pylibmc.memcached.PyLibMCCache':
+        pylibmc.Client(
+            [default_cache['LOCATION']],
+            behaviors=default_cache["OPTIONS"]  # type: ignore # settings not typed properly
+        ).flush_all()
+
+    model = None  # type: Any # Hack because mypy doesn't know these are model classes
+    for model in [Message, Stream, UserProfile, Recipient,
+                  Realm, Subscription, Huddle, UserMessage, Client,
+                  DefaultStream]:
+        model.objects.all().delete()
+    Session.objects.all().delete()
 
 # Suppress spammy output from the push notifications logger
 push_notifications_logger.disabled = True
@@ -177,9 +201,10 @@ class Command(BaseCommand):
             # Start by clearing all the data in our database
             clear_database()
 
-            # Create our two default realms
+            # Create our three default realms
             # Could in theory be done via zerver.lib.actions.do_create_realm, but
             # welcome-bot (needed for do_create_realm) hasn't been created yet
+            create_internal_realm()
             zulip_realm = Realm.objects.create(
                 string_id="zulip", name="Zulip Dev", emails_restricted_to_domains=True,
                 description="The Zulip development environment default organization."
@@ -208,8 +233,41 @@ class Command(BaseCommand):
                 ("aaron", "AARON@zulip.com"),
                 ("Polonius", "polonius@zulip.com"),
             ]
-            for i in range(options["extra_users"]):
-                names.append(('Extra User %d' % (i,), 'extrauser%d@zulip.com' % (i,)))
+
+            # For testing really large batches:
+            # Create extra users with semi realistic names to make search
+            # functions somewhat realistic.  We'll still create 1000 users
+            # like Extra222 User for some predicability.
+            num_names = options['extra_users']
+            num_boring_names = 1000
+
+            for i in range(min(num_names, num_boring_names)):
+                full_name = 'Extra%03d User' % (i,)
+                names.append((full_name, 'extrauser%d@zulip.com' % (i,)))
+
+            if num_names > num_boring_names:
+                fnames = ['Amber', 'Arpita', 'Bob', 'Cindy', 'Daniela', 'Dan', 'Dinesh',
+                          'Faye', 'François', 'George', 'Hank', 'Irene',
+                          'James', 'Janice', 'Jenny', 'Jill', 'John',
+                          'Kate', 'Katelyn', 'Kobe', 'Lexi', 'Manish', 'Mark', 'Matt', 'Mayna',
+                          'Michael', 'Pete', 'Peter', 'Phil', 'Phillipa', 'Preston',
+                          'Sally', 'Scott', 'Sandra', 'Steve', 'Stephanie',
+                          'Vera']
+                mnames = ['de', 'van', 'von', 'Shaw', 'T.']
+                lnames = ['Adams', 'Agarwal', 'Beal', 'Benson', 'Bonita', 'Davis',
+                          'George', 'Harden', 'James', 'Jones', 'Johnson', 'Jordan',
+                          'Lee', 'Leonard', 'Singh', 'Smith', 'Patel', 'Towns', 'Wall']
+
+            for i in range(num_boring_names, num_names):
+                fname = random.choice(fnames) + str(i)
+                full_name = fname
+                if random.random() < 0.7:
+                    if random.random() < 0.5:
+                        full_name += ' ' + random.choice(mnames)
+                    full_name += ' ' + random.choice(lnames)
+                email = fname.lower() + '@zulip.com'
+                names.append((full_name, email))
+
             create_users(zulip_realm, names)
 
             iago = get_user("iago@zulip.com", zulip_realm)
@@ -218,27 +276,19 @@ class Command(BaseCommand):
             iago.save(update_fields=['is_staff'])
 
             guest_user = get_user("polonius@zulip.com", zulip_realm)
-            guest_user.is_guest = True
-            guest_user.save(update_fields=['is_guest'])
+            guest_user.role = UserProfile.ROLE_GUEST
+            guest_user.save(update_fields=['role'])
 
             # These bots are directly referenced from code and thus
             # are needed for the test suite.
-            all_realm_bots = [(bot['name'], bot['email_template'] % (settings.INTERNAL_BOT_DOMAIN,))
-                              for bot in settings.INTERNAL_BOTS]
             zulip_realm_bots = [
                 ("Zulip Error Bot", "error-bot@zulip.com"),
                 ("Zulip Default Bot", "default-bot@zulip.com"),
-                ("Welcome Bot", "welcome-bot@zulip.com"),
             ]
-
             for i in range(options["extra_bots"]):
                 zulip_realm_bots.append(('Extra Bot %d' % (i,), 'extrabot%d@zulip.com' % (i,)))
-            zulip_realm_bots.extend(all_realm_bots)
-            create_users(zulip_realm, zulip_realm_bots, bot_type=UserProfile.DEFAULT_BOT)
 
-            # Initialize the email gateway bot as an API Super User
-            email_gateway_bot = get_system_bot(settings.EMAIL_GATEWAY_BOT)
-            do_change_is_admin(email_gateway_bot, True, permission="api_super_user")
+            create_users(zulip_realm, zulip_realm_bots, bot_type=UserProfile.DEFAULT_BOT)
 
             zoe = get_user("zoe@zulip.com", zulip_realm)
             zulip_webhook_bots = [
@@ -309,10 +359,14 @@ class Command(BaseCommand):
                         r = Recipient.objects.get(type=Recipient.STREAM, type_id=stream.id)
                         subscriptions_list.append((profile, r))
             else:
+                num_streams = len(recipient_streams)
+                num_users = len(profiles)
                 for i, profile in enumerate(profiles):
                     # Subscribe to some streams.
-                    for type_id in recipient_streams[:int(len(recipient_streams) *
-                                                          float(i)/len(profiles)) + 1]:
+                    fraction = float(i) / num_users
+                    num_recips = int(num_streams * fraction) + 1
+
+                    for type_id in recipient_streams[:num_recips]:
                         r = Recipient.objects.get(type=Recipient.STREAM, type_id=type_id)
                         subscriptions_list.append((profile, r))
 
@@ -367,16 +421,11 @@ class Command(BaseCommand):
                                                                   hint="Or your personal blog's URL")
             mentor = try_add_realm_custom_profile_field(zulip_realm, "Mentor",
                                                         CustomProfileField.USER)
-            external_account_field_data = {
-                'subtype': 'github'
-            }  # type: ProfileFieldData
-            github_profile = try_add_realm_custom_profile_field(zulip_realm, "GitHub",
-                                                                CustomProfileField.EXTERNAL_ACCOUNT,
-                                                                field_data=external_account_field_data)
+            github_profile = try_add_realm_default_custom_profile_field(zulip_realm, "github")
 
             # Fill in values for Iago and Hamlet
             hamlet = get_user("hamlet@zulip.com", zulip_realm)
-            do_update_user_custom_profile_data(iago, [
+            do_update_user_custom_profile_data_if_changed(iago, [
                 {"id": phone_number.id, "value": "+1-234-567-8901"},
                 {"id": biography.id, "value": "Betrayer of Othello."},
                 {"id": favorite_food.id, "value": "Apples"},
@@ -386,7 +435,7 @@ class Command(BaseCommand):
                 {"id": mentor.id, "value": [hamlet.id]},
                 {"id": github_profile.id, "value": 'zulip'},
             ])
-            do_update_user_custom_profile_data(hamlet, [
+            do_update_user_custom_profile_data_if_changed(hamlet, [
                 {"id": phone_number.id, "value": "+0-11-23-456-7890"},
                 {
                     "id": biography.id,
@@ -535,11 +584,6 @@ class Command(BaseCommand):
                 ]
                 create_users(zulip_realm, internal_zulip_users_nosubs, bot_type=UserProfile.DEFAULT_BOT)
 
-            zulip_cross_realm_bots = [
-                ("Zulip Feedback Bot", "feedback@zulip.com"),
-            ]
-            create_users(zulip_realm, zulip_cross_realm_bots, bot_type=UserProfile.DEFAULT_BOT)
-
             # Mark all messages as read
             UserMessage.objects.all().update(flags=UserMessage.flags.read)
 
@@ -560,6 +604,20 @@ class Command(BaseCommand):
                 # development purpose only
                 call_command('populate_analytics_db')
             self.stdout.write("Successfully populated test database.\n")
+
+def create_internal_realm() -> None:
+    internal_realm = Realm.objects.create(string_id=settings.SYSTEM_BOT_REALM)
+
+    internal_realm_bots = [(bot['name'], bot['email_template'] % (settings.INTERNAL_BOT_DOMAIN,))
+                           for bot in settings.INTERNAL_BOTS]
+    internal_realm_bots += [
+        ("Zulip Feedback Bot", "feedback@zulip.com"),
+    ]
+    create_users(internal_realm, internal_realm_bots, bot_type=UserProfile.DEFAULT_BOT)
+
+    # Initialize the email gateway bot as an API Super User
+    email_gateway_bot = get_system_bot(settings.EMAIL_GATEWAY_BOT)
+    do_change_is_admin(email_gateway_bot, True, permission="api_super_user")
 
 recipient_hash = {}  # type: Dict[int, Recipient]
 def get_recipient_by_id(rid: int) -> Recipient:
@@ -646,7 +704,7 @@ def generate_and_send_messages(data: Tuple[int, Sequence[Sequence[int]], Mapping
             message.subject = stream.name + str(random.randint(1, 3))
             saved_data['subject'] = message.subject
 
-        message.pub_date = choose_pub_date(num_messages, tot_messages, options['threads'])
+        message.date_sent = choose_date_sent(num_messages, tot_messages, options['threads'])
         messages.append(message)
 
         recipients[num_messages] = (message_type, message.recipient.id, saved_data)
@@ -674,7 +732,7 @@ def send_messages(messages: List[Message]) -> None:
     do_send_messages([{'message': message} for message in messages])
     settings.USING_RABBITMQ = True
 
-def choose_pub_date(num_messages: int, tot_messages: int, threads: int) -> datetime:
+def choose_date_sent(num_messages: int, tot_messages: int, threads: int) -> datetime:
     # Spoofing time not supported with threading
     if threads != 1:
         return timezone_now()

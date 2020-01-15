@@ -24,7 +24,7 @@ from zerver.lib.timezone import get_all_timezones
 from zerver.models import UserProfile, name_changes_disabled, avatar_changes_disabled
 from confirmation.models import get_object_from_key, render_confirmation_key_error, \
     ConfirmationKeyException, Confirmation
-from zproject.backends import email_belongs_to_ldap
+from zproject.backends import email_belongs_to_ldap, check_password_strength
 
 AVATAR_CHANGES_DISABLED_ERROR = _("Avatar changes are disabled in this organization.")
 
@@ -71,6 +71,8 @@ def json_change_settings(request: HttpRequest, user_profile: UserProfile,
         if not authenticate(username=user_profile.delivery_email, password=old_password,
                             realm=user_profile.realm, return_data=return_data):
             return json_error(_("Wrong password!"))
+        if not check_password_strength(new_password):
+            return json_error(_("New password is too weak!"))
         do_change_password(user_profile, new_password)
         # In Django 1.10, password changes invalidates sessions, see
         # https://docs.djangoproject.com/en/1.10/topics/auth/default/#session-invalidation-on-password-change
@@ -92,7 +94,7 @@ def json_change_settings(request: HttpRequest, user_profile: UserProfile,
     if user_profile.delivery_email != new_email and new_email != '':
         if user_profile.realm.email_changes_disabled and not user_profile.is_realm_admin:
             return json_error(_("Email address changes are disabled in this organization."))
-        error, skipped = validate_email(user_profile, new_email)
+        error, skipped, deactivated = validate_email(user_profile, new_email)
         if error:
             return json_error(error)
         if skipped:
@@ -138,7 +140,7 @@ def update_display_settings_backend(
         raise JsonableError(_("Invalid timezone '%s'") % (timezone,))
 
     if (emojiset is not None and
-            emojiset not in UserProfile.emojiset_choices()):
+            emojiset not in [emojiset_choice['key'] for emojiset_choice in UserProfile.emojiset_choices()]):
         raise JsonableError(_("Invalid emojiset '%s'") % (emojiset,))
 
     if (demote_inactive_streams is not None and
@@ -162,6 +164,7 @@ def json_change_notify_settings(
         enable_stream_email_notifications: Optional[bool]=REQ(validator=check_bool, default=None),
         enable_stream_push_notifications: Optional[bool]=REQ(validator=check_bool, default=None),
         enable_stream_audible_notifications: Optional[bool]=REQ(validator=check_bool, default=None),
+        wildcard_mentions_notify: Optional[bool]=REQ(validator=check_bool, default=None),
         notification_sound: Optional[str]=REQ(validator=check_string, default=None),
         enable_desktop_notifications: Optional[bool]=REQ(validator=check_bool, default=None),
         enable_sounds: Optional[bool]=REQ(validator=check_bool, default=None),
@@ -228,9 +231,9 @@ def delete_avatar_backend(request: HttpRequest, user_profile: UserProfile) -> Ht
 # a bot regenerating its own API key.
 @has_request_variables
 def regenerate_api_key(request: HttpRequest, user_profile: UserProfile) -> HttpResponse:
-    do_regenerate_api_key(user_profile, user_profile)
+    new_api_key = do_regenerate_api_key(user_profile, user_profile)
     json_result = dict(
-        api_key = user_profile.api_key
+        api_key = new_api_key
     )
     return json_success(json_result)
 

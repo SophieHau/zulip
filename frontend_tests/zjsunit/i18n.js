@@ -1,21 +1,38 @@
-var i18n = {};
-
-i18n.t = function (str, context) {
-    // We are currently assuming that we will receive context in form of a Dict
-    // of key value pairs and string will be having substitution for keywords
-    // like these "__keyword__".
+exports.t = function (str, context) {
+    // HAPPY PATH: most translations are a simple string:
     if (context === undefined) {
         return 'translated: ' + str;
     }
-    var keyword_regex = /__(\w)+__/g;
-    var keys_in_str = str.match(keyword_regex);
-    var keywords = _.map(keys_in_str, function (key) {
-        return key.slice(2, key.length - 2);
+
+    /*
+    context will be an ordinary JS object like this:
+
+        {minutes: minutes.toString()}
+
+    This supports use cases like the following:
+
+        i18n.t("__minutes__ min to edit", {minutes: minutes.toString()})
+
+    We have to munge in the context here.
+    */
+    const keyword_regex = /__(- )?(\w)+__/g;
+    const keys_in_str = str.match(keyword_regex);
+    const substitutions = _.map(keys_in_str, function (key) {
+        let prefix_length;
+        if (key.startsWith("__- ")) {
+            prefix_length = 4;
+        } else {
+            prefix_length = 2;
+        }
+        return {
+            keyword: key.slice(prefix_length, key.length - 2),
+            prefix: key.slice(0, prefix_length),
+            suffix: key.slice(key.length - 2, key.length),
+        };
     });
-    _.each(keywords, function (keyword) {
-        str = str.replace('__' + keyword + '__', context[keyword]);
+    _.each(substitutions, function (item) {
+        str = str.replace(item.prefix + item.keyword + item.suffix,
+                          context[item.keyword]);
     });
     return 'translated: ' + str;
 };
-
-module.exports = i18n;

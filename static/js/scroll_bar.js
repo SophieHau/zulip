@@ -1,8 +1,3 @@
-
-var scroll_bar = (function () {
-
-var exports = {};
-
 // A few of our width properties in zulip depend on the width of the
 // browser scrollbar that is generated at the far right side of the
 // page, which unfortunately varies depending on the browser and
@@ -11,23 +6,23 @@ var exports = {};
 //
 // From https://stackoverflow.com/questions/13382516/getting-scroll-bar-width-using-javascript
 function getScrollbarWidth() {
-    var outer = document.createElement("div");
+    const outer = document.createElement("div");
     outer.style.visibility = "hidden";
     outer.style.width = "100px";
     outer.style.msOverflowStyle = "scrollbar"; // needed for WinJS apps
 
     document.body.appendChild(outer);
 
-    var widthNoScroll = outer.offsetWidth;
+    const widthNoScroll = outer.offsetWidth;
     // force scrollbars
     outer.style.overflow = "scroll";
 
     // add innerdiv
-    var inner = document.createElement("div");
+    const inner = document.createElement("div");
     inner.style.width = "100%";
     outer.appendChild(inner);
 
-    var widthWithScroll = inner.offsetWidth;
+    const widthWithScroll = inner.offsetWidth;
 
     // remove divs
     outer.parentNode.removeChild(outer);
@@ -35,7 +30,7 @@ function getScrollbarWidth() {
     return widthNoScroll - widthWithScroll;
 }
 
-var sbWidth;
+let sbWidth;
 
 exports.initialize = function () {
 // Workaround for browsers with fixed scrollbars
@@ -83,10 +78,4 @@ exports.set_layout_width = function () {
     }
 };
 
-return exports;
-}());
-if (typeof module !== 'undefined') {
-    module.exports = scroll_bar;
-}
-
-window.scroll_bar = scroll_bar;
+window.scroll_bar = exports;

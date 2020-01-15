@@ -10,6 +10,7 @@ from django.utils.translation import ugettext as _
 from zerver.models import UserProfile, get_user_profile_by_id, get_client, \
     GENERIC_INTERFACE, Service, SLACK_INTERFACE, email_to_domain
 from zerver.lib.actions import check_send_message
+from zerver.lib.message import MessageDict
 from zerver.lib.queue import retry_event
 from zerver.lib.topic import get_topic_from_message_info
 from zerver.lib.url_encoding import near_message_url
@@ -27,6 +28,13 @@ class OutgoingWebhookServiceInterface:
 class GenericOutgoingWebhookService(OutgoingWebhookServiceInterface):
 
     def build_bot_request(self, event: Dict[str, Any]) -> Optional[Any]:
+        # Because we don't have a place for the recipient of an
+        # outgoing webhook to indicate whether it wants the raw
+        # Markdown or the rendered HTML, we leave both the content and
+        # rendered_content fields in the message payload.
+        MessageDict.finalize_payload(event['message'], False, False,
+                                     keep_rendered_content=True)
+
         request_data = {"data": event['command'],
                         "message": event['message'],
                         "bot_email": self.user_profile.email,
@@ -204,7 +212,7 @@ def notify_bot_owner(event: Dict[str, Any],
         notification_message += "\nThe webhook got a response with status code *%s*." % (status_code,)
     if response_content:
         notification_message += "\nThe response contains the following payload:\n" \
-                                "```\n%s\n```" % (response_content,)
+                                "```\n%s\n```" % (str(response_content),)
     if exception:
         notification_message += "\nWhen trying to send a request to the webhook service, an exception " \
                                 "of type %s occurred:\n```\n%s\n```" % (

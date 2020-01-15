@@ -6,8 +6,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Count
 from django.utils.timezone import now as timezone_now
 
-from zerver.models import Message, Realm, Recipient, Stream, \
-    Subscription, UserActivity, UserMessage, UserProfile, get_realm
+from zerver.models import Message, Realm, Recipient, Stream, Subscription, \
+    UserActivity, UserMessage, UserProfile, get_realm
 
 MOBILE_CLIENT_LIST = ["Android", "ios"]
 HUMAN_CLIENT_LIST = MOBILE_CLIENT_LIST + ["website"]
@@ -33,32 +33,32 @@ class Command(BaseCommand):
 
     def messages_sent_by(self, user: UserProfile, days_ago: int) -> int:
         sent_time_cutoff = timezone_now() - datetime.timedelta(days=days_ago)
-        return human_messages.filter(sender=user, pub_date__gt=sent_time_cutoff).count()
+        return human_messages.filter(sender=user, date_sent__gt=sent_time_cutoff).count()
 
     def total_messages(self, realm: Realm, days_ago: int) -> int:
         sent_time_cutoff = timezone_now() - datetime.timedelta(days=days_ago)
-        return Message.objects.filter(sender__realm=realm, pub_date__gt=sent_time_cutoff).count()
+        return Message.objects.filter(sender__realm=realm, date_sent__gt=sent_time_cutoff).count()
 
     def human_messages(self, realm: Realm, days_ago: int) -> int:
         sent_time_cutoff = timezone_now() - datetime.timedelta(days=days_ago)
-        return human_messages.filter(sender__realm=realm, pub_date__gt=sent_time_cutoff).count()
+        return human_messages.filter(sender__realm=realm, date_sent__gt=sent_time_cutoff).count()
 
     def api_messages(self, realm: Realm, days_ago: int) -> int:
         return (self.total_messages(realm, days_ago) - self.human_messages(realm, days_ago))
 
     def stream_messages(self, realm: Realm, days_ago: int) -> int:
         sent_time_cutoff = timezone_now() - datetime.timedelta(days=days_ago)
-        return human_messages.filter(sender__realm=realm, pub_date__gt=sent_time_cutoff,
+        return human_messages.filter(sender__realm=realm, date_sent__gt=sent_time_cutoff,
                                      recipient__type=Recipient.STREAM).count()
 
     def private_messages(self, realm: Realm, days_ago: int) -> int:
         sent_time_cutoff = timezone_now() - datetime.timedelta(days=days_ago)
-        return human_messages.filter(sender__realm=realm, pub_date__gt=sent_time_cutoff).exclude(
+        return human_messages.filter(sender__realm=realm, date_sent__gt=sent_time_cutoff).exclude(
             recipient__type=Recipient.STREAM).exclude(recipient__type=Recipient.HUDDLE).count()
 
     def group_private_messages(self, realm: Realm, days_ago: int) -> int:
         sent_time_cutoff = timezone_now() - datetime.timedelta(days=days_ago)
-        return human_messages.filter(sender__realm=realm, pub_date__gt=sent_time_cutoff).exclude(
+        return human_messages.filter(sender__realm=realm, date_sent__gt=sent_time_cutoff).exclude(
             recipient__type=Recipient.STREAM).exclude(recipient__type=Recipient.PERSONAL).count()
 
     def report_percentage(self, numerator: float, denominator: float, text: str) -> None:

@@ -1,11 +1,11 @@
-from typing import List
+from typing import List, Optional
 
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.template import loader
 from zerver.lib.streams import get_stream_by_id
 
-from zerver.models import Message, get_stream_recipient
+from zerver.models import Message, get_stream_recipient, UserProfile
 from zerver.lib.avatar import get_gravatar_url
 from zerver.lib.response import json_success
 from zerver.lib.timestamp import datetime_to_timestamp
@@ -45,14 +45,14 @@ def archive(request: HttpRequest,
         messages_for_topic(
             stream_id=stream_id,
             topic_name=topic_name,
-        ).select_related('sender').order_by('pub_date')
+        ).select_related('sender').order_by('date_sent')
     )
 
     if not all_messages:
         return get_response([], True, stream.name)
 
     rendered_message_list = []
-    prev_sender = None
+    prev_sender = None  # type: Optional[UserProfile]
     for msg in all_messages:
         include_sender = False
         status_message = Message.is_status_message(msg.content, msg.rendered_content)
@@ -68,9 +68,9 @@ def archive(request: HttpRequest,
             'sender_full_name': msg.sender.full_name,
             'timestampstr': datetime_to_timestamp(msg.last_edit_time
                                                   if msg.last_edit_time
-                                                  else msg.pub_date),
+                                                  else msg.date_sent),
             'message_content': msg.rendered_content,
-            'avatar_url': get_gravatar_url(msg.sender.email, 1),
+            'avatar_url': get_gravatar_url(msg.sender.delivery_email, 1),
             'include_sender': include_sender,
             'status_message': status_message,
         }

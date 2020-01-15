@@ -1,17 +1,14 @@
-var render_group_pms = require('../templates/group_pms.hbs');
-var Dict = require('./dict').Dict;
-
-var activity = (function () {
-var exports = {};
+const render_group_pms = require('../templates/group_pms.hbs');
+const Dict = require('./dict').Dict;
 
 /*
     Helpers for detecting user activity and managing user idle states
 */
 
 /* Broadcast "idle" to server after 5 minutes of local inactivity */
-var DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 /* Time between keep-alive pings */
-var ACTIVE_PING_INTERVAL_MS = 50 * 1000;
+const ACTIVE_PING_INTERVAL_MS = 50 * 1000;
 
 /* Keep in sync with views.py:update_active_status_backend() */
 exports.ACTIVE = "active";
@@ -30,10 +27,10 @@ exports.client_is_active = document.hasFocus && document.hasFocus();
 // server-initiated reload as user activity.
 exports.new_user_input = true;
 
-var huddle_timestamps = new Dict();
+const huddle_timestamps = new Dict();
 
 function update_pm_count_in_dom(count_span, value_span, count) {
-    var li = count_span.parents('li');
+    const li = count_span.parents('li');
 
     if (count === 0) {
         count_span.hide();
@@ -48,7 +45,7 @@ function update_pm_count_in_dom(count_span, value_span, count) {
 }
 
 function update_group_count_in_dom(count_span, value_span, count) {
-    var li = count_span.parent();
+    const li = count_span.parent();
 
     if (count === 0) {
         count_span.hide();
@@ -73,14 +70,14 @@ function get_group_list_item(user_ids_string) {
 }
 
 function set_pm_count(user_ids_string, count) {
-    var count_span = get_pm_list_item(user_ids_string).find('.count');
-    var value_span = count_span.find('.value');
+    const count_span = get_pm_list_item(user_ids_string).find('.count');
+    const value_span = count_span.find('.value');
     update_pm_count_in_dom(count_span, value_span, count);
 }
 
 function set_group_count(user_ids_string, count) {
-    var count_span = get_group_list_item(user_ids_string).find('.count');
-    var value_span = count_span.find('.value');
+    const count_span = get_group_list_item(user_ids_string).find('.count');
+    const value_span = count_span.find('.value');
     update_group_count_in_dom(count_span, value_span, count);
 }
 
@@ -90,7 +87,7 @@ exports.update_dom_with_unread_counts = function (counts) {
 
     counts.pm_count.each(function (count, user_ids_string) {
         // TODO: just use user_ids_string in our markup
-        var is_pm = user_ids_string.indexOf(',') < 0;
+        const is_pm = user_ids_string.indexOf(',') < 0;
         if (is_pm) {
             set_pm_count(user_ids_string, count);
         } else {
@@ -100,13 +97,13 @@ exports.update_dom_with_unread_counts = function (counts) {
 };
 
 exports.process_loaded_messages = function (messages) {
-    var need_resize = false;
+    let need_resize = false;
 
     _.each(messages, function (message) {
-        var huddle_string = people.huddle_string(message);
+        const huddle_string = people.huddle_string(message);
 
         if (huddle_string) {
-            var old_timestamp = huddle_timestamps.get(huddle_string);
+            const old_timestamp = huddle_timestamps.get(huddle_string);
 
             if (!old_timestamp || old_timestamp < message.timestamp) {
                 huddle_timestamps.set(huddle_string, message.timestamp);
@@ -123,18 +120,24 @@ exports.process_loaded_messages = function (messages) {
 };
 
 exports.get_huddles = function () {
-    var huddles = huddle_timestamps.keys();
+    let huddles = huddle_timestamps.keys();
     huddles = _.sortBy(huddles, function (huddle) {
         return huddle_timestamps.get(huddle);
     });
     return huddles.reverse();
 };
 
-exports.full_huddle_name = function (huddle) {
-    var user_ids = huddle.split(',');
+function huddle_split(huddle) {
+    return _.map(huddle.split(','), function (s) {
+        return parseInt(s, 10);
+    });
+}
 
-    var names = _.map(user_ids, function (user_id) {
-        var person = people.get_person_from_user_id(user_id);
+exports.full_huddle_name = function (huddle) {
+    const user_ids = huddle_split(huddle);
+
+    const names = _.map(user_ids, function (user_id) {
+        const person = people.get_person_from_user_id(user_id);
         return person.full_name;
     });
 
@@ -142,17 +145,17 @@ exports.full_huddle_name = function (huddle) {
 };
 
 exports.short_huddle_name = function (huddle) {
-    var user_ids = huddle.split(',');
+    const user_ids = huddle_split(huddle);
 
-    var num_to_show = 3;
-    var names = _.map(user_ids, function (user_id) {
-        var person = people.get_person_from_user_id(user_id);
+    const num_to_show = 3;
+    let names = _.map(user_ids, function (user_id) {
+        const person = people.get_person_from_user_id(user_id);
         return person.full_name;
     });
 
     names = _.sortBy(names, function (name) { return name.toLowerCase(); });
     names = names.slice(0, num_to_show);
-    var others = user_ids.length - num_to_show;
+    const others = user_ids.length - num_to_show;
 
     if (others === 1) {
         names.push("+ 1 other");
@@ -175,13 +178,13 @@ exports.redraw_user = function (user_id) {
         return;
     }
 
-    var filter_text = exports.get_filter_text();
+    const filter_text = exports.get_filter_text();
 
     if (!buddy_data.matches_filter(filter_text, user_id)) {
         return;
     }
 
-    var info = buddy_data.get_item(user_id);
+    const info = buddy_data.get_item(user_id);
 
     buddy_list.insert_or_move({
         key: user_id,
@@ -198,9 +201,9 @@ exports.build_user_sidebar = function () {
         return;
     }
 
-    var filter_text = exports.get_filter_text();
+    const filter_text = exports.get_filter_text();
 
-    var user_ids = buddy_data.get_filtered_and_sorted_user_ids(filter_text);
+    const user_ids = buddy_data.get_filtered_and_sorted_user_ids(filter_text);
 
     buddy_list.populate({
         keys: user_ids,
@@ -219,7 +222,7 @@ function do_update_users_for_search() {
     exports.user_cursor.reset();
 }
 
-var update_users_for_search = _.throttle(do_update_users_for_search, 50);
+const update_users_for_search = _.throttle(do_update_users_for_search, 50);
 
 function show_huddles() {
     $('#group-pm-list').addClass("show");
@@ -234,14 +237,14 @@ exports.update_huddles = function () {
         return;
     }
 
-    var huddles = exports.get_huddles().slice(0, 10);
+    const huddles = exports.get_huddles().slice(0, 10);
 
     if (huddles.length === 0) {
         hide_huddles();
         return;
     }
 
-    var group_pms = _.map(huddles, function (huddle) {
+    const group_pms = _.map(huddles, function (huddle) {
         return {
             user_ids_string: huddle,
             name: exports.full_huddle_name(huddle),
@@ -251,11 +254,11 @@ exports.update_huddles = function () {
         };
     });
 
-    var html = render_group_pms({group_pms: group_pms});
+    const html = render_group_pms({group_pms: group_pms});
     ui.get_content_element($('#group-pms')).html(html);
 
     _.each(huddles, function (user_ids_string) {
-        var count = unread.num_unread_for_person(user_ids_string);
+        const count = unread.num_unread_for_person(user_ids_string);
         set_group_count(user_ids_string, count);
     });
 
@@ -375,7 +378,7 @@ exports.initialize = function () {
 };
 
 exports.update_presence_info = function (email, info, server_time) {
-    var user_id = people.get_user_id(email);
+    const user_id = people.get_user_id(email);
     if (!user_id) {
         blueslip.warn('unknown email: ' + email);
         return;
@@ -413,20 +416,20 @@ exports.reset_users = function () {
 };
 
 exports.narrow_for_user = function (opts) {
-    var user_id = buddy_list.get_key_from_li({li: opts.li});
+    const user_id = buddy_list.get_key_from_li({li: opts.li});
     return exports.narrow_for_user_id({user_id: user_id});
 };
 
 exports.narrow_for_user_id = function (opts) {
-    var person = people.get_person_from_user_id(opts.user_id);
-    var email = person.email;
+    const person = people.get_person_from_user_id(opts.user_id);
+    const email = person.email;
 
     narrow.by('pm-with', email, {trigger: 'sidebar'});
     exports.user_filter.clear_and_hide_search();
 };
 
 function keydown_enter_key() {
-    var user_id = exports.user_cursor.get_key();
+    const user_id = exports.user_cursor.get_key();
     if (user_id === undefined) {
         return;
     }
@@ -447,7 +450,7 @@ exports.set_cursor_and_filter = function () {
         on_focus: exports.user_cursor.reset,
     });
 
-    var $input = exports.user_filter.input_field();
+    const $input = exports.user_filter.input_field();
 
     $input.on('blur', exports.user_cursor.clear);
 
@@ -495,10 +498,4 @@ exports.get_filter_text = function () {
     return exports.user_filter.text();
 };
 
-return exports;
-
-}());
-if (typeof module !== 'undefined') {
-    module.exports = activity;
-}
-window.activity = activity;
+window.activity = exports;

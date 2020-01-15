@@ -1,7 +1,6 @@
 from typing import Union, Optional, Dict, Any, List
 
 import ujson
-
 from django.http import HttpRequest, HttpResponse
 
 from django.utils.translation import ugettext as _
@@ -9,15 +8,16 @@ from django.shortcuts import redirect, render
 from django.conf import settings
 
 from zerver.decorator import require_realm_admin, require_member_or_admin
-from zerver.forms import CreateUserForm
+from zerver.forms import CreateUserForm, PASSWORD_TOO_WEAK_ERROR
+from zerver.lib.events import get_raw_user_data
 from zerver.lib.actions import do_change_avatar_fields, do_change_bot_owner, \
     do_change_is_admin, do_change_default_all_public_streams, \
     do_change_default_events_register_stream, do_change_default_sending_stream, \
     do_create_user, do_deactivate_user, do_reactivate_user, do_regenerate_api_key, \
     check_change_full_name, notify_created_bot, do_update_outgoing_webhook_service, \
     do_update_bot_config_data, check_change_bot_full_name, do_change_is_guest, \
-    do_update_user_custom_profile_data, check_remove_custom_profile_field_value
-from zerver.lib.avatar import avatar_url, get_gravatar_url, get_avatar_field
+    do_update_user_custom_profile_data_if_changed, check_remove_custom_profile_field_value
+from zerver.lib.avatar import avatar_url, get_gravatar_url
 from zerver.lib.bot_config import set_bot_config
 from zerver.lib.exceptions import CannotDeactivateLastUserError
 from zerver.lib.integrations import EMBEDDED_BOTS
@@ -36,7 +36,9 @@ from zerver.lib.utils import generate_api_key, generate_random_token
 from zerver.models import UserProfile, Stream, Message, email_allowed_for_realm, \
     get_user_by_delivery_email, Service, get_user_including_cross_realm, \
     DomainNotAllowedForRealmError, DisposableEmailError, get_user_profile_by_id_in_realm, \
-    EmailContainsPlusError, get_user_by_id_in_realm_including_cross_realm, Realm
+    EmailContainsPlusError, get_user_by_id_in_realm_including_cross_realm, Realm, \
+    InvalidFakeEmailDomain
+from zproject.backends import check_password_strength
 
 def deactivate_user_backend(request: HttpRequest, user_profile: UserProfile,
                             user_id: int) -> HttpResponse:
@@ -82,16 +84,15 @@ def update_user_backend(request: HttpRequest, user_profile: UserProfile, user_id
                         full_name: Optional[str]=REQ(default="", validator=check_string),
                         is_admin: Optional[bool]=REQ(default=None, validator=check_bool),
                         is_guest: Optional[bool]=REQ(default=None, validator=check_bool),
-                        profile_data: List[Dict[str, Union[int, str, List[int]]]]=
+                        profile_data: Optional[List[Dict[str, Union[int, str, List[int]]]]]=
                         REQ(default=None,
                             validator=check_list(check_dict([('id', check_int)])))) -> HttpResponse:
     target = access_user_by_id(user_profile, user_id, allow_deactivated=True, allow_bots=True)
 
-    # This condition is a bit complicated, because the user could
-    # already be a guest/admin, or the request could be to make the
-    # user a guest/admin.  In any case, the point is that we outright
-    # reject requests that would result in a user who is both an admin
-    # and a guest.
+    # Historically, UserProfile had two fields, is_guest and is_realm_admin.
+    # This condition protected against situations where update_user_backend
+    # could cause both is_guest and is_realm_admin to be set.
+    # Once we update the frontend to just send a 'role' value, we can remove this check.
     if (((is_guest is None and target.is_guest) or is_guest) and
             ((is_admin is None and target.is_realm_admin) or is_admin)):
         return json_error(_("Guests cannot be organization administrators"))
@@ -119,7 +120,7 @@ def update_user_backend(request: HttpRequest, user_profile: UserProfile, user_id
             else:
                 clean_profile_data.append(entry)
         validate_user_custom_profile_data(target.realm.id, clean_profile_data)
-        do_update_user_custom_profile_data(target, clean_profile_data)
+        do_update_user_custom_profile_data_if_changed(target, clean_profile_data)
 
     return json_success()
 
@@ -165,7 +166,7 @@ def get_stream_name(stream: Optional[Stream]) -> Optional[str]:
 def patch_bot_backend(
         request: HttpRequest, user_profile: UserProfile, bot_id: int,
         full_name: Optional[str]=REQ(default=None),
-        bot_owner_id: Optional[int]=REQ(default=None),
+        bot_owner_id: Optional[int]=REQ(validator=check_int, default=None),
         config_data: Optional[Dict[str, str]]=REQ(default=None,
                                                   validator=check_dict(value_validator=check_string)),
         service_payload_url: Optional[str]=REQ(validator=check_url, default=None),
@@ -250,9 +251,9 @@ def patch_bot_backend(
 def regenerate_bot_api_key(request: HttpRequest, user_profile: UserProfile, bot_id: int) -> HttpResponse:
     bot = access_bot_by_id(user_profile, bot_id)
 
-    do_regenerate_api_key(bot, user_profile)
+    new_api_key = do_regenerate_api_key(bot, user_profile)
     json_result = dict(
-        api_key = bot.api_key
+        api_key=new_api_key
     )
     return json_success(json_result)
 
@@ -273,10 +274,15 @@ def add_bot_backend(
         default_all_public_streams: Optional[bool]=REQ(validator=check_bool, default=None)
 ) -> HttpResponse:
     short_name = check_short_name(short_name_raw)
-    service_name = service_name or short_name
+    if bot_type != UserProfile.INCOMING_WEBHOOK_BOT:
+        service_name = service_name or short_name
     short_name += "-bot"
     full_name = check_full_name(full_name_raw)
-    email = '%s@%s' % (short_name, user_profile.realm.get_bot_domain())
+    try:
+        email = '%s@%s' % (short_name, user_profile.realm.get_bot_domain())
+    except InvalidFakeEmailDomain:
+        return json_error(_("Can't create bots until FAKE_EMAIL_DOMAIN is correctly configured.\n"
+                            "Please contact your server administrator."))
     form = CreateUserForm({'full_name': full_name, 'email': email})
 
     if bot_type == UserProfile.EMBEDDED_BOT:
@@ -320,10 +326,10 @@ def add_bot_backend(
         (default_events_register_stream, ignored_rec, ignored_sub) = access_stream_by_name(
             user_profile, default_events_register_stream_name)
 
-    if bot_type == UserProfile.EMBEDDED_BOT:
-        check_valid_bot_config(service_name, config_data)
+    if bot_type in (UserProfile.INCOMING_WEBHOOK_BOT, UserProfile.EMBEDDED_BOT) and service_name:
+        check_valid_bot_config(bot_type, service_name, config_data)
 
-    bot_profile = do_create_user(email=email, password='',
+    bot_profile = do_create_user(email=email, password=None,
                                  realm=user_profile.realm, full_name=full_name,
                                  short_name=short_name,
                                  bot_type=bot_type,
@@ -337,13 +343,17 @@ def add_bot_backend(
         upload_avatar_image(user_file, user_profile, bot_profile)
 
     if bot_type in (UserProfile.OUTGOING_WEBHOOK_BOT, UserProfile.EMBEDDED_BOT):
+        assert(isinstance(service_name, str))
         add_service(name=service_name,
                     user_profile=bot_profile,
                     base_url=payload_url,
                     interface=interface_type,
                     token=generate_api_key())
 
-    if bot_type == UserProfile.EMBEDDED_BOT:
+    if bot_type == UserProfile.INCOMING_WEBHOOK_BOT and service_name:
+        set_bot_config(bot_profile, "integration_id", service_name)
+
+    if bot_type in (UserProfile.INCOMING_WEBHOOK_BOT, UserProfile.EMBEDDED_BOT):
         for key, value in config_data.items():
             set_bot_config(bot_profile, key, value)
 
@@ -390,83 +400,26 @@ def get_bots_backend(request: HttpRequest, user_profile: UserProfile) -> HttpRes
 
 @has_request_variables
 def get_members_backend(request: HttpRequest, user_profile: UserProfile,
-                        client_gravatar: bool=REQ(validator=check_bool, default=False)) -> HttpResponse:
+                        include_custom_profile_fields: bool=REQ(validator=check_bool,
+                                                                default=False),
+                        client_gravatar: bool=REQ(validator=check_bool, default=False)
+                        ) -> HttpResponse:
     '''
     The client_gravatar field here is set to True if clients can compute
     their own gravatars, which saves us bandwidth.  We want to eventually
     make this the default behavior, but we have old clients that expect
     the server to compute this for us.
     '''
-
     realm = user_profile.realm
-
-    fields = [
-        'id',
-        'email',
-        'realm_id',
-        'full_name',
-        'is_bot',
-        'is_realm_admin',
-        'is_active',
-        'is_guest',
-        'bot_type',
-        'avatar_source',
-        'avatar_version',
-        'bot_owner__email',
-        'timezone',
-    ]
     if realm.email_address_visibility == Realm.EMAIL_ADDRESS_VISIBILITY_ADMINS:
         # If email addresses are only available to administrators,
         # clients cannot compute gravatars, so we force-set it to false.
         client_gravatar = False
-    include_delivery_email = user_profile.is_realm_admin
-    if include_delivery_email:
-        fields.append("delivery_email")
-        fields.append("bot_owner__delivery_email")
-
-    query = UserProfile.objects.filter(
-        realm_id=realm.id
-    ).values(*fields)
-
-    def get_member(row: Dict[str, Any]) -> Dict[str, Any]:
-        email = row['email']
-        user_id = row['id']
-
-        result = dict(
-            user_id=user_id,
-            email=email,
-            full_name=row['full_name'],
-            is_bot=row['is_bot'],
-            is_active=row['is_active'],
-            is_admin=row['is_realm_admin'],
-            bot_type=row['bot_type'],
-            is_guest=row['is_guest'],
-            timezone=row['timezone'],
-        )
-
-        result['avatar_url'] = get_avatar_field(
-            user_id=user_id,
-            email=email,
-            avatar_source=row['avatar_source'],
-            avatar_version=row['avatar_version'],
-            realm_id=row['realm_id'],
-            medium=False,
-            client_gravatar=client_gravatar,
-        )
-
-        if row['bot_owner__email']:
-            result['bot_owner'] = row['bot_owner__email']
-
-        if include_delivery_email:
-            result['delivery_email'] = row['delivery_email']
-            if row['bot_owner__delivery_email']:
-                result['bot_owner_delivery_email'] = row['bot_owner__delivery_email']
-
-        return result
-
-    members = [get_member(row) for row in query]
-
-    return json_success({'members': members})
+    members = get_raw_user_data(realm,
+                                user_profile=user_profile,
+                                client_gravatar=client_gravatar,
+                                include_custom_profile_fields=include_custom_profile_fields)
+    return json_success({'members': members.values()})
 
 @require_realm_admin
 @has_request_variables
@@ -498,6 +451,9 @@ def create_user_backend(request: HttpRequest, user_profile: UserProfile,
     except UserProfile.DoesNotExist:
         pass
 
+    if not check_password_strength(password):
+        return json_error(PASSWORD_TOO_WEAK_ERROR)
+
     do_create_user(email, password, realm, full_name, short_name)
     return json_success()
 
@@ -509,11 +465,27 @@ def get_profile_backend(request: HttpRequest, user_profile: UserProfile) -> Http
                   client_id      = generate_client_id(),
                   max_message_id = -1,
                   user_id        = user_profile.id,
+                  avatar_url     = avatar_url(user_profile),
                   full_name      = user_profile.full_name,
                   email          = user_profile.email,
                   is_bot         = user_profile.is_bot,
                   is_admin       = user_profile.is_realm_admin,
                   short_name     = user_profile.short_name)
+
+    if not user_profile.is_bot:
+        custom_profile_field_values = user_profile.customprofilefieldvalue_set.all()
+        profile_data = dict()  # type: Dict[int, Dict[str, Any]]
+        for profile_field in custom_profile_field_values:
+            if profile_field.field.is_renderable():
+                profile_data[profile_field.field_id] = {
+                    "value": profile_field.value,
+                    "rendered_value": profile_field.rendered_value
+                }
+            else:
+                profile_data[profile_field.field_id] = {
+                    "value": profile_field.value
+                }
+        result["profile_data"] = profile_data
 
     messages = Message.objects.filter(usermessage__user_profile=user_profile).order_by('-id')[:1]
     if messages:
@@ -528,5 +500,10 @@ def team_view(request: HttpRequest) -> HttpResponse:
     return render(
         request,
         'zerver/team.html',
-        context=data,
+        context={
+            'page_params': {
+                'contrib': data['contrib'],
+            },
+            'date': data['date'],
+        },
     )

@@ -4,21 +4,11 @@
 
 # Google Summer of Code
 
-Zulip has been a GSoC mentoring organization since 2016, and we
-generally have 10-15 GSoC students each summer, depending on how many
-high-quality applications we receive.  We have some of the highest
-standards of any GSoC organization; successful applications generally
-have dozens of commits integrated into Zulip or other open source
-projects by the time we review their application.  See
-[our contributing guide](../overview/contributing.html) for details on
-getting involved.
-
 ## About us
 
 [Zulip](https://zulipchat.com) is a powerful, open source team chat
-application. The core web app is written in Python and uses the Django
-framework. We also make a cross-platform mobile app for iOS and
-Android, a cross-platform desktop app, and over 100 native
+application. Zulip has a web app, a cross-platform mobile app for iOS
+and Android, a cross-platform desktop app, and over 100 native
 integrations, all open source.
 
 Zulip has gained a considerable amount of traction since it was
@@ -26,32 +16,42 @@ Zulip has gained a considerable amount of traction since it was
 code contributions from [over 500 people](https://zulipchat.com/team)
 from all around the world.  Thousands of people use Zulip every single
 day, and your work on Zulip will have impact on the daily experiences
-of a huge and rapidly growing number of people.
+of a large and rapidly growing number of people.
 
 [oss-release]: https://blogs.dropbox.com/tech/2015/09/open-sourcing-zulip-a-dropbox-hack-week-project/
 
-As an organization, we value high-quality mentorship and making sure
-our product quality is extremely high -- you can expect to learn a lot
-from disciplined code reviews by highly experienced engineers. Since
-Zulip is a team chat product, your GSoC experience with the Zulip
-project will be highly interactive, with a real focus on teaching you
-the concepts and reasoning behind how Zulip is engineered and how to
-make it better.
+As an organization, we value high-quality, responsive mentorship and
+making sure our product quality is extremely high -- you can expect to
+experience disciplined code reviews by highly experienced
+engineers.  Since Zulip is a team chat product, your GSoC experience
+with the Zulip project will be highly interactive.
 
-As part of that commitment, Zulip has over 130,000 words of
-[documentation for developers](../), much of it designed to explain
-not just how Zulip works, but why Zulip works the way that it does.
+As part of that commitment, Zulip has over 150,000 words of
+[documentation for
+developers](../index.html#welcome-to-the-zulip-documentation), much of
+it designed to explain not just how Zulip works, but why Zulip works
+the way that it does.
+
+### Our history with Google Open Source Programs
+
+Zulip has been a GSoC mentoring organization since 2016, and we aim
+for 10-20 GSoC students each summer.  We have some of the highest
+standards of any GSoC organization; successful applications generally
+have dozens of commits integrated into Zulip or other open source
+projects by the time we review their application.  See [our
+contributing guide](../overview/contributing.md) for details on
+getting involved with GSoC.
 
 Zulip participated in GSoC 2016 and mentored three successful students
 officially (plus 4 more who did their proposed projects unofficially).
-We had 14 (+3) students in 2017 and we had 10 (+3) students in 2018.
-We've also mentored five Outreachy interns and hundreds of Google
-Code-In participants (several of who are major contributors to the
-project today).
+We had 14 (+3) students in 2017, 10 (+3) students in 2018, and 17 (+1)
+in 2019.  We've also mentored five Outreachy interns and hundreds of
+Google Code-In participants (several of who are major contributors to
+the project today).
 
 ### Expectations for GSoC students
 
-[Our guide for having a great summer with Zulip](../contributing/summer-with-zulip.html)
+[Our guide for having a great summer with Zulip](../contributing/summer-with-zulip.md)
 is focused on what one should know once doing a summer project with
 Zulip.  But it has a lot of useful advice on how we expect students to
 interact, above and beyond what is discussed in Google's materials.
@@ -77,7 +77,7 @@ tasks that are great for first-time contributors. Use
 to get your Zulip development environment set up and to find your first issue. If you have any
 trouble, please speak up in
 [#GSoC](https://chat.zulip.org/#narrow/stream/14-GSoC) on
-[the Zulip development community server](../contributing/chat-zulip-org.html)
+[the Zulip development community server](../contributing/chat-zulip-org.md)
 (use your name as the topic).
 
 ## Application tips, and how to be a strong candidate
@@ -123,7 +123,7 @@ application deadline.
 We are more interested in candidates if we see them submitting good
 contributions to Zulip projects, helping other applicants on GitHub
 and on
-[chat.zulip.org](../contributing/chat-zulip-org.html),
+[chat.zulip.org](../contributing/chat-zulip-org.md),
 learning from our suggestions,
 [trying to solve their own obstacles and then asking well-formed
 questions](https://blogs.akamai.com/2013/10/you-must-try-and-then-you-must-ask.html),
@@ -166,7 +166,7 @@ mentoring projects.  We usually decide which contributors are
 mentoring which projects based in part on who is a good fit for the
 needs of each student as well as technical expertise.  You can reach
 us via [#GSoC](https://chat.zulip.org/#narrow/stream/14-GSoC) on
-[the Zulip development community server](../contributing/chat-zulip-org.html),
+[the Zulip development community server](../contributing/chat-zulip-org.md),
 (compose a new stream message with your name as the topic).
 
 Zulip operates under group mentorship.  That means you should
@@ -198,6 +198,11 @@ online.
 
 ## Project ideas
 
+**Note**: This project ideas list has not been updated for the 2020
+season, so many of the specific projects discussed here may have been
+completed.  They still provide a useful sense of the range of areas
+where active work on Zulip is happening.
+
 These are the seeds of ideas; you will need to do research on the
 Zulip codebase, read issues on GitHub, and talk with developers to put
 together a complete project proposal.  It's also fine for you to come
@@ -216,7 +221,7 @@ skills needed, and try to emphasize where strong skills with
 particular tools are likely to be important for a given project.
 
 For all of our projects, an important skill to develop is a good
-command of Git; read [our Git Guide](../git/overview.html) in full to
+command of Git; read [our Git Guide](../git/overview.md) in full to
 learn how to use it well.  Of particular importance is mastering using
 Git rebase so that you can construct commits that are clearly correct
 and explain why they are correct.
@@ -260,7 +265,7 @@ CSS](https://github.com/zulip/zulip/).
 
 - Fill in the gaps in Zulip's
   [REST API documentation](https://zulipchat.com/api).  Zulip has a
-  [nice framework](../documentation/api.html) for
+  [nice framework](../documentation/api.md) for
   writing API documentation built by a student last summer based on
   the OpenAPI standard with built-in automated tests, but there are a
   few dozen endpoints that are missing, several of which are quite
@@ -282,7 +287,7 @@ CSS](https://github.com/zulip/zulip/).
   e.g. having built a prototype with
   [the Django Oauth toolkit](https://django-oauth-toolkit.readthedocs.io/en/latest/)
   would be great to demonstrate as part of an application.  The
-  [Zulip integration writing guide](../documentation/integrations.html)
+  [Zulip integration writing guide](../documentation/integrations.md)
   and
   [integration documentation](https://chat.zulip.org/integrations/)
   are useful materials for learning about how things currently work,
@@ -335,7 +340,7 @@ CSS](https://github.com/zulip/zulip/).
   at `contrib_bots/` in the main Zulip repository that can be used for
   testing; the design document for the deployment part of this vision
   (likely part 1) is
-  [here](../subsystems/custom-apps.html).
+  [here](../subsystems/custom-apps.md).
   **Skills recommended**: Python and JavaScript/CSS, plus devops
   skills (Linux deployment, Docker, puppet etc.) are all useful here.
   Experience writing tools using various popular APIs is helpful for
@@ -382,7 +387,7 @@ CSS](https://github.com/zulip/zulip/).
   semi-duplicate code for each feature. **Skills recommended**: A
   good mix of Python/Django and HTML/CSS/JavaScript skill is ideal.
   The system for adding new features is
-  [well documented](../tutorials/new-feature-tutorial.html).
+  [well documented](../tutorials/new-feature-tutorial.md).
   Expert: Shubham Dhama.
 
 - Rebuild the Zulip web UI using a modern reactive layer like vue.js.
@@ -390,7 +395,7 @@ CSS](https://github.com/zulip/zulip/).
 presence layer), then move on to more complex pieces (like the
 subscriptions page), and finally attach the main UI.  Definitely worth
 reading the vue.js documentation and reading
-[how Zulip's real-time sync works](../subsystems/events-system.html).
+[how Zulip's real-time sync works](../subsystems/events-system.md).
 **Skills recommended**: Strong JavaScript experience, good
 communication skills and an eye for detail.  We think this would be an
 awesome project, but rewrite projects often introduce lots of bugs, so
@@ -398,7 +403,7 @@ we're interested in particularly careful candidates who have the
 discipline to redo a small component at a time and carefully test for
 regressions.  Good ways to demonstrate qualification for this are
 finding and reporting bugs using
-[Zulip's manual UI testing guide](../testing/manual-testing.html)
+[Zulip's manual UI testing guide](../testing/manual-testing.md)
 and doing
 [refactoring projects](https://github.com/zulip/zulip/labels/area%3A%20refactoring).
 Expert: Tommy Ip, Tim Abbott.
@@ -436,7 +441,7 @@ Expert: Tommy Ip, Tim Abbott.
   single area).
 
   A possible specific larger project in this space is working on
-  adding [mypy](../testing/mypy.html) stubs
+  adding [mypy](../testing/mypy.md) stubs
   for Django in mypy to make our type checking more powerful.  Read
   [our mypy blog post](https://blog.zulip.org/2016/10/13/static-types-in-python-oh-mypy/)
   for details on how mypy works and is integrated into zulip.  This

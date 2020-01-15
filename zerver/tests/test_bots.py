@@ -1,14 +1,15 @@
-
 import filecmp
 import os
 import ujson
 
 from django.core import mail
+from django.test import override_settings
 from mock import patch, MagicMock
-from typing import Any, Dict, List, Mapping
+from typing import Any, Dict, List, Mapping, Optional
 
-from zerver.lib.actions import do_change_stream_invite_only, do_deactivate_user
-from zerver.lib.bot_config import get_bot_config
+from zerver.lib.actions import do_change_stream_invite_only, do_deactivate_user, \
+    do_set_realm_property
+from zerver.lib.bot_config import get_bot_config, ConfigError
 from zerver.models import get_realm, get_stream, \
     Realm, UserProfile, get_user, get_bot_services, Service, \
     is_cross_realm_bot_email
@@ -19,10 +20,21 @@ from zerver.lib.test_helpers import (
     queries_captured,
     tornado_redirected_to_list,
 )
-from zerver.lib.integrations import EMBEDDED_BOTS
+from zerver.lib.integrations import EMBEDDED_BOTS, WebhookIntegration
 from zerver.lib.bot_lib import get_bot_handler
-
 from zulip_bots.custom_exceptions import ConfigValidationError
+
+
+# A test validator
+def _check_string(var_name: str, val: object) -> Optional[str]:
+    if str(val).startswith("_"):
+        return ('%s starts with a "_" and is hence invalid.') % (var_name,)
+    return None
+
+stripe_sample_config_options = [
+    WebhookIntegration('stripe', ['financial'], display_name='Stripe',
+                       config_options=[("Stripe API Key", "stripe_api_key", _check_string)])
+]
 
 class BotTest(ZulipTestCase, UploadSerializeMixin):
     def get_bot_user(self, email: str) -> UserProfile:
@@ -81,6 +93,22 @@ class BotTest(ZulipTestCase, UploadSerializeMixin):
         )
         result = self.client_post("/json/bots", bot_info)
         self.assert_json_error(result, 'Bad name or username')
+        self.assert_num_bots_equal(0)
+
+    @override_settings(FAKE_EMAIL_DOMAIN="invaliddomain")
+    def test_add_bot_with_invalid_fake_email_domain(self) -> None:
+        self.login(self.example_email('hamlet'))
+        self.assert_num_bots_equal(0)
+        bot_info = {
+            'full_name': 'The Bot of Hamlet',
+            'short_name': 'hambot',
+            'bot_type': '1',
+        }
+        result = self.client_post("/json/bots", bot_info)
+
+        error_message = ("Can't create bots until FAKE_EMAIL_DOMAIN is correctly configured.\n" +
+                         "Please contact your server administrator.")
+        self.assert_json_error(result, error_message)
         self.assert_num_bots_equal(0)
 
     def test_add_bot_with_no_name(self) -> None:
@@ -157,7 +185,7 @@ class BotTest(ZulipTestCase, UploadSerializeMixin):
         bots = [m for m in members if m['email'] == 'hambot-bot@zulip.testserver']
         self.assertEqual(len(bots), 1)
         bot = bots[0]
-        self.assertEqual(bot['bot_owner'], self.example_email('hamlet'))
+        self.assertEqual(bot['bot_owner_id'], self.example_user('hamlet').id)
         self.assertEqual(bot['user_id'], self.get_bot_user(email).id)
 
     def test_add_bot_with_username_in_use(self) -> None:
@@ -241,6 +269,56 @@ class BotTest(ZulipTestCase, UploadSerializeMixin):
         profile = get_user(email, realm)
         assert(profile.default_sending_stream is not None)
         self.assertEqual(profile.default_sending_stream.name, 'Rome')
+
+    def test_add_bot_email_address_visibility(self) -> None:
+        # Test that we don't mangle the email field with
+        # email_address_visiblity limited to admins
+        user = self.example_user("hamlet")
+        do_set_realm_property(user.realm, "email_address_visibility",
+                              Realm.EMAIL_ADDRESS_VISIBILITY_ADMINS)
+        user.refresh_from_db()
+
+        self.login(user.delivery_email)
+        self.assert_num_bots_equal(0)
+        events = []  # type: List[Mapping[str, Any]]
+        with tornado_redirected_to_list(events):
+            result = self.create_bot()
+        self.assert_num_bots_equal(1)
+
+        email = 'hambot-bot@zulip.testserver'
+        bot = self.get_bot_user(email)
+
+        event = [e for e in events if e['event']['type'] == 'realm_bot'][0]
+        self.assertEqual(
+            dict(
+                type='realm_bot',
+                op='add',
+                bot=dict(email='hambot-bot@zulip.testserver',
+                         user_id=bot.id,
+                         bot_type=bot.bot_type,
+                         full_name='The Bot of Hamlet',
+                         is_active=True,
+                         api_key=result['api_key'],
+                         avatar_url=result['avatar_url'],
+                         default_sending_stream=None,
+                         default_events_register_stream=None,
+                         default_all_public_streams=False,
+                         services=[],
+                         # Important: This is the product-facing
+                         # email, not the delivery email, for this
+                         # user.  TODO: Migrate this to an integer ID.
+                         owner=user.email)
+            ),
+            event['event']
+        )
+
+        users_result = self.client_get('/json/users')
+        members = ujson.loads(users_result.content)['members']
+        bots = [m for m in members if m['email'] == 'hambot-bot@zulip.testserver']
+        self.assertEqual(len(bots), 1)
+        bot = bots[0]
+        self.assertEqual(bot['bot_owner_id'], user.id)
+        self.assertEqual(bot['user_id'], self.get_bot_user(email).id)
 
     def test_bot_add_subscription(self) -> None:
         """
@@ -1442,3 +1520,81 @@ class BotTest(ZulipTestCase, UploadSerializeMixin):
         with self.settings(CROSS_REALM_BOT_EMAILS={"random-bot@zulip.com"}):
             self.assertTrue(is_cross_realm_bot_email("random-bot@zulip.com"))
             self.assertFalse(is_cross_realm_bot_email("notification-bot@zulip.com"))
+
+    @patch("zerver.lib.integrations.WEBHOOK_INTEGRATIONS", stripe_sample_config_options)
+    def test_create_incoming_webhook_bot_with_service_name_and_with_keys(self) -> None:
+        self.login(self.example_email('hamlet'))
+        bot_metadata = {
+            "full_name": "My Stripe Bot",
+            "short_name": "my-stripe",
+            "bot_type": UserProfile.INCOMING_WEBHOOK_BOT,
+            "service_name": "stripe",
+            "config_data": ujson.dumps({"stripe_api_key": "sample-api-key"})
+        }
+        self.create_bot(**bot_metadata)
+        new_bot = UserProfile.objects.get(full_name="My Stripe Bot")
+        config_data = get_bot_config(new_bot)
+        self.assertEqual(config_data, {"integration_id": "stripe",
+                                       "stripe_api_key": "sample-api-key"})
+
+    @patch("zerver.lib.integrations.WEBHOOK_INTEGRATIONS", stripe_sample_config_options)
+    def test_create_incoming_webhook_bot_with_service_name_incorrect_keys(self) -> None:
+        self.login(self.example_email('hamlet'))
+        bot_metadata = {
+            "full_name": "My Stripe Bot",
+            "short_name": "my-stripe",
+            "bot_type": UserProfile.INCOMING_WEBHOOK_BOT,
+            "service_name": "stripe",
+            "config_data": ujson.dumps({"stripe_api_key": "_invalid_key"})
+        }
+        response = self.client_post("/json/bots", bot_metadata)
+        self.assertEqual(response.status_code, 400)
+        expected_error_message = 'Invalid stripe_api_key value _invalid_key (stripe_api_key starts with a "_" and is hence invalid.)'
+        self.assertEqual(ujson.loads(response.content.decode('utf-8'))["msg"], expected_error_message)
+        with self.assertRaises(UserProfile.DoesNotExist):
+            UserProfile.objects.get(full_name="My Stripe Bot")
+
+    @patch("zerver.lib.integrations.WEBHOOK_INTEGRATIONS", stripe_sample_config_options)
+    def test_create_incoming_webhook_bot_with_service_name_without_keys(self) -> None:
+        self.login(self.example_email('hamlet'))
+        bot_metadata = {
+            "full_name": "My Stripe Bot",
+            "short_name": "my-stripe",
+            "bot_type": UserProfile.INCOMING_WEBHOOK_BOT,
+            "service_name": "stripe",
+        }
+        response = self.client_post("/json/bots", bot_metadata)
+        self.assertEqual(response.status_code, 400)
+        expected_error_message = "Missing configuration parameters: {'stripe_api_key'}"
+        self.assertEqual(ujson.loads(response.content.decode('utf-8'))["msg"], expected_error_message)
+        with self.assertRaises(UserProfile.DoesNotExist):
+            UserProfile.objects.get(full_name="My Stripe Bot")
+
+    @patch("zerver.lib.integrations.WEBHOOK_INTEGRATIONS", stripe_sample_config_options)
+    def test_create_incoming_webhook_bot_without_service_name(self) -> None:
+        self.login(self.example_email('hamlet'))
+        bot_metadata = {
+            "full_name": "My Stripe Bot",
+            "short_name": "my-stripe",
+            "bot_type": UserProfile.INCOMING_WEBHOOK_BOT,
+        }
+        self.create_bot(**bot_metadata)
+        new_bot = UserProfile.objects.get(full_name="My Stripe Bot")
+        with self.assertRaises(ConfigError):
+            get_bot_config(new_bot)
+
+    @patch("zerver.lib.integrations.WEBHOOK_INTEGRATIONS", stripe_sample_config_options)
+    def test_create_incoming_webhook_bot_with_incorrect_service_name(self) -> None:
+        self.login(self.example_email('hamlet'))
+        bot_metadata = {
+            "full_name": "My Stripe Bot",
+            "short_name": "my-stripe",
+            "bot_type": UserProfile.INCOMING_WEBHOOK_BOT,
+            "service_name": "stripes",
+        }
+        response = self.client_post("/json/bots", bot_metadata)
+        self.assertEqual(response.status_code, 400)
+        expected_error_message = "Invalid integration 'stripes'."
+        self.assertEqual(ujson.loads(response.content.decode('utf-8'))["msg"], expected_error_message)
+        with self.assertRaises(UserProfile.DoesNotExist):
+            UserProfile.objects.get(full_name="My Stripe Bot")

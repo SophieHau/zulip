@@ -1,4 +1,3 @@
-
 import logging
 import sys
 import urllib
@@ -165,7 +164,7 @@ class AsyncDjangoHandlerBase(tornado.web.RequestHandler, base.BaseHandler):  # n
             self.set_header(h[0], h[1])
 
         if not hasattr(self, "_new_cookies"):
-            self._new_cookies = []  # type: List[http.cookie.SimpleCookie]
+            self._new_cookies = []  # type: List[http.cookie.SimpleCookie[str]]
         self._new_cookies.append(response.cookies)
 
         self.write(response.content)

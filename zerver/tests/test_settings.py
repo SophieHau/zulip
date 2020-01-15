@@ -1,14 +1,12 @@
-
 import ujson
 
 from django.http import HttpResponse
 from django.test import override_settings
-from mock import patch
 from typing import Any, Dict, Union
 
 from zerver.lib.initial_password import initial_password
 from zerver.lib.test_classes import ZulipTestCase
-from zerver.lib.test_helpers import MockLDAP, get_test_image_file
+from zerver.lib.test_helpers import get_test_image_file
 from zerver.lib.users import get_all_api_keys
 from zerver.models import get_realm, UserProfile, \
     get_user_profile_by_api_key
@@ -78,6 +76,27 @@ class ChangeSettingsTest(ZulipTestCase):
         self.login(self.example_email("hamlet"), "foobar1")
         user_profile = self.example_user('hamlet')
         self.assert_logged_in_user_id(user_profile.id)
+
+    def test_password_change_check_strength(self) -> None:
+        self.login(self.example_email("hamlet"))
+        with self.settings(PASSWORD_MIN_LENGTH=3, PASSWORD_MIN_GUESSES=1000):
+            json_result = self.client_patch(
+                "/json/settings",
+                dict(
+                    full_name='Foo Bar',
+                    old_password=initial_password(self.example_email("hamlet")),
+                    new_password='easy',
+                ))
+            self.assert_json_error(json_result, "New password is too weak!")
+
+            json_result = self.client_patch(
+                "/json/settings",
+                dict(
+                    full_name='Foo Bar',
+                    old_password=initial_password(self.example_email("hamlet")),
+                    new_password='f657gdGGk9',
+                ))
+            self.assert_json_success(json_result)
 
     def test_illegal_name_changes(self) -> None:
         user = self.example_user('hamlet')
@@ -186,24 +205,13 @@ class ChangeSettingsTest(ZulipTestCase):
 
     @override_settings(AUTHENTICATION_BACKENDS=('zproject.backends.ZulipLDAPAuthBackend',
                                                 'zproject.backends.EmailAuthBackend',
-                                                'zproject.backends.ZulipDummyBackend'),
-                       AUTH_LDAP_BIND_PASSWORD='',
-                       AUTH_LDAP_USER_DN_TEMPLATE='uid=%(user)s,ou=users,dc=zulip,dc=com')
+                                                'zproject.backends.ZulipDummyBackend'))
     def test_change_password_ldap_backend(self) -> None:
-        ldap_user_attr_map = {'full_name': 'fn', 'short_name': 'sn'}
-        ldap_patcher = patch('django_auth_ldap.config.ldap.initialize')
-        mock_initialize = ldap_patcher.start()
-        mock_ldap = MockLDAP()
-        mock_initialize.return_value = mock_ldap
-
-        mock_ldap.directory = {
-            'uid=hamlet,ou=users,dc=zulip,dc=com': {
-                'userPassword': ['ldappassword', ],
-                'fn': ['New LDAP fullname']
-            }
-        }
+        self.init_default_ldap_database()
+        ldap_user_attr_map = {'full_name': 'cn', 'short_name': 'sn'}
 
         self.login(self.example_email("hamlet"))
+
         with self.settings(LDAP_APPEND_DOMAIN="zulip.com",
                            AUTH_LDAP_USER_ATTR_MAP=ldap_user_attr_map):
             result = self.client_patch(
@@ -217,7 +225,7 @@ class ChangeSettingsTest(ZulipTestCase):
             result = self.client_patch(
                 "/json/settings",
                 dict(
-                    old_password='ldappassword',
+                    old_password=self.ldap_password(),  # hamlet's password in ldap
                     new_password="ignored",
                 ))
             self.assert_json_error(result, "Your Zulip password is managed in LDAP")

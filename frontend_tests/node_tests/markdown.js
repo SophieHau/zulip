@@ -1,20 +1,18 @@
 zrequire('hash_util');
-zrequire('katex', 'katex/dist/katex.min.js');
-zrequire('marked', 'third/marked/lib/marked');
+set_global('katex', zrequire('katex', 'katex/dist/katex.min.js'));
+set_global('marked', zrequire('marked', 'third/marked/lib/marked'));
 zrequire('util');
 zrequire('fenced_code');
 zrequire('stream_data');
 zrequire('people');
 zrequire('user_groups');
-zrequire('emoji_codes', 'generated/emoji/emoji_codes');
+set_global('emoji_codes', zrequire('emoji_codes', 'generated/emoji/emoji_codes'));
 zrequire('emoji');
 zrequire('message_store');
 zrequire('markdown');
 
-global.patch_builtin('window', {
-    location: {
-        origin: 'http://zulip.zulipdev.com',
-    },
+set_global('location', {
+    origin: 'http://zulip.zulipdev.com',
 });
 
 set_global('page_params', {
@@ -50,16 +48,16 @@ set_global('Image', function () {
 });
 emoji.initialize();
 
-var doc = "";
+const doc = "";
 set_global('document', doc);
 
 set_global('$', global.make_zjquery());
 
 set_global('feature_flags', {local_echo: true});
 
-var people = global.people;
+const people = global.people;
 
-var cordelia = {
+const cordelia = {
     full_name: 'Cordelia Lear',
     user_id: 101,
     email: 'cordelia@zulip.com',
@@ -98,21 +96,21 @@ people.add({
 
 people.initialize_current_user(cordelia.user_id);
 
-var hamletcharacters = {
+const hamletcharacters = {
     name: "hamletcharacters",
     id: 1,
     description: "Characters of Hamlet",
     members: [cordelia.user_id],
 };
 
-var backend = {
+const backend = {
     name: "Backend",
     id: 2,
     description: "Backend team",
     members: [],
 };
 
-var edgecase_group = {
+const edgecase_group = {
     name: "Bobby <h1>Tables</h1>",
     id: 3,
     description: "HTML Syntax to check for Markdown edge cases.",
@@ -123,15 +121,15 @@ global.user_groups.add(hamletcharacters);
 global.user_groups.add(backend);
 global.user_groups.add(edgecase_group);
 
-var stream_data = global.stream_data;
-var denmark = {
+const stream_data = global.stream_data;
+const denmark = {
     subscribed: false,
     color: 'blue',
     name: 'Denmark',
     stream_id: 1,
     is_muted: true,
 };
-var social = {
+const social = {
     subscribed: true,
     color: 'red',
     name: 'social',
@@ -139,14 +137,14 @@ var social = {
     is_muted: false,
     invite_only: true,
 };
-var edgecase_stream = {
+const edgecase_stream = {
     subscribed: true,
     color: 'green',
     name: 'Bobby <h1>Tables</h1>',
     stream_id: 3,
     is_muted: false,
 };
-var edgecase_stream_2 = {
+const edgecase_stream_2 = {
     subscribed: true,
     color: 'yellow',
     name: 'Bobby <h1',
@@ -163,18 +161,18 @@ stream_data.add_sub('Bobby <h1', edgecase_stream_2);
 // Check the default behavior of fenced code blocks
 // works properly before markdown is initialized.
 run_test('fenced_block_defaults', () => {
-    var input = '\n```\nfenced code\n```\n\nand then after\n';
-    var expected = '\n\n<div class="codehilite"><pre><span></span>fenced code\n</pre></div>\n\n\n\nand then after\n\n';
-    var output = fenced_code.process_fenced_code(input);
+    const input = '\n```\nfenced code\n```\n\nand then after\n';
+    const expected = '\n\n<div class="codehilite"><pre><span></span>fenced code\n</pre></div>\n\n\n\nand then after\n\n';
+    const output = fenced_code.process_fenced_code(input);
     assert.equal(output, expected);
 });
 
 markdown.initialize();
 
-var bugdown_data = global.read_fixture_data('markdown_test_cases.json');
+const bugdown_data = global.read_fixture_data('markdown_test_cases.json');
 
 run_test('bugdown_detection', () => {
-    var no_markup = [
+    const no_markup = [
         "This is a plaintext message",
         "This is a plaintext: message",
         "This is a :plaintext message",
@@ -197,7 +195,7 @@ run_test('bugdown_detection', () => {
         "And an avatar !avatar(leo@zulip.com) is here",
     ];
 
-    var markup = [
+    const markup = [
         "Contains a https://zulip.com/image.png file",
         "Contains a https://zulip.com/image.jpg file",
         "https://zulip.com/image.jpg",
@@ -222,7 +220,7 @@ run_test('bugdown_detection', () => {
 });
 
 run_test('marked_shared', () => {
-    var tests = bugdown_data.regular_tests;
+    const tests = bugdown_data.regular_tests;
 
     tests.forEach(function (test) {
 
@@ -231,11 +229,11 @@ run_test('marked_shared', () => {
             return;
         }
 
-        var message = {raw_content: test.input};
+        const message = {raw_content: test.input};
         page_params.translate_emoticons = test.translate_emoticons || false;
         markdown.apply_markdown(message);
-        var output = message.content;
-        var error_message = `Failure in test: ${test.name}`;
+        const output = message.content;
+        const error_message = `Failure in test: ${test.name}`;
         if (test.marked_expected_output) {
             global.bugdown_assert.notEqual(test.expected_output, output, error_message);
             global.bugdown_assert.equal(test.marked_expected_output, output, error_message);
@@ -248,7 +246,7 @@ run_test('marked_shared', () => {
 });
 
 run_test('message_flags', () => {
-    var message = {raw_content: '@**Leo**'};
+    let message = {raw_content: '@**Leo**'};
     markdown.apply_markdown(message);
     assert(!message.mentioned);
     assert(!message.mentioned_me_directly);
@@ -265,7 +263,7 @@ run_test('message_flags', () => {
 });
 
 run_test('marked', () => {
-    var test_cases = [
+    const test_cases = [
         {input: 'hello', expected: '<p>hello</p>'},
         {input: 'hello there', expected: '<p>hello there</p>'},
         {input: 'hello **bold** for you', expected: '<p>hello <strong>bold</strong> for you</p>'},
@@ -284,7 +282,7 @@ run_test('marked', () => {
         {input: 'Some text first\n* a\n* list \n* here\n\nand then after',
          expected: '<p>Some text first</p>\n<ul>\n<li>a</li>\n<li>list </li>\n<li>here</li>\n</ul>\n<p>and then after</p>'},
         {input: '1. an\n2. ordered \n3. list',
-         expected: '<p>1. an<br>\n2. ordered<br>\n3. list</p>'},
+         expected: '<ol>\n<li>an</li>\n<li>ordered </li>\n<li>list</li>\n</ol>'},
         {input: '\n~~~quote\nquote this for me\n~~~\nthanks\n',
          expected: '<blockquote>\n<p>quote this for me</p>\n</blockquote>\n<p>thanks</p>'},
         {input: 'This is a @**Cordelia Lear** mention',
@@ -398,18 +396,18 @@ run_test('marked', () => {
         // Disable emoji conversion by default.
         page_params.translate_emoticons = test_case.translate_emoticons || false;
 
-        var input = test_case.input;
-        var expected = test_case.expected;
+        const input = test_case.input;
+        const expected = test_case.expected;
 
-        var message = {raw_content: input};
+        const message = {raw_content: input};
         markdown.apply_markdown(message);
-        var output = message.content;
+        const output = message.content;
         assert.equal(expected, output);
     });
 });
 
 run_test('topic_links', () => {
-    var message = {type: 'stream', topic: "No links here"};
+    let message = {type: 'stream', topic: "No links here"};
     markdown.add_topic_links(message);
     assert.equal(util.get_topic_links(message).length, []);
 
@@ -458,8 +456,8 @@ run_test('topic_links', () => {
 });
 
 run_test('message_flags', () => {
-    var input = "/me is testing this";
-    var message = {topic: "No links here", raw_content: input};
+    let input = "/me is testing this";
+    let message = {topic: "No links here", raw_content: input};
     markdown.apply_markdown(message);
 
     assert.equal(message.is_me_message, true);
@@ -530,7 +528,7 @@ run_test('message_flags', () => {
 });
 
 run_test('backend_only_realm_filters', () => {
-    var backend_only_realm_filters = [
+    const backend_only_realm_filters = [
         'Here is the PR-#123.',
         'Function abc() was introduced in (PR)#123.',
     ];
@@ -543,8 +541,8 @@ run_test('python_to_js_filter', () => {
     // The only way to reach python_to_js_filter is indirectly, hence the call
     // to set_realm_filters.
     markdown.set_realm_filters([['/a(?im)a/g'], ['/a(?L)a/g']]);
-    var actual_value = marked.InlineLexer.rules.zulip.realm_filters;
-    var expected_value = [/\/aa\/g(?![\w])/gim, /\/aa\/g(?![\w])/g];
+    let actual_value = marked.InlineLexer.rules.zulip.realm_filters;
+    let expected_value = [/\/aa\/g(?![\w])/gim, /\/aa\/g(?![\w])/g];
     assert.deepEqual(actual_value, expected_value);
     // Test case with multiple replacements.
     markdown.set_realm_filters([['#cf(?P<contest>[0-9]+)(?P<problem>[A-Z][0-9A-Z]*)', 'http://google.com']]);
@@ -564,7 +562,7 @@ run_test('python_to_js_filter', () => {
 run_test('katex_throws_unexpected_exceptions', () => {
     katex.renderToString = function () { throw new Error('some-exception'); };
     blueslip.set_test_data('error', 'Error: some-exception');
-    var message = { raw_content: '$$a$$' };
+    const message = { raw_content: '$$a$$' };
     markdown.apply_markdown(message);
     assert.equal(blueslip.get_test_logs('error').length, 1);
     blueslip.clear_test_data();

@@ -22,16 +22,29 @@ ZerverFieldsT = Dict[str, Any]
 class SubscriberHandler:
     def __init__(self) -> None:
         self.stream_info = dict()  # type: Dict[int, Set[int]]
+        self.huddle_info = dict()  # type: Dict[int, Set[int]]
 
     def set_info(self,
-                 stream_id: int,
-                 users: Set[int]) -> None:
-        self.stream_info[stream_id] = users
+                 users: Set[int],
+                 stream_id: Optional[int]=None,
+                 huddle_id: Optional[int]=None,
+                 ) -> None:
+        if stream_id is not None:
+            self.stream_info[stream_id] = users
+        elif huddle_id is not None:
+            self.huddle_info[huddle_id] = users
+        else:
+            raise AssertionError("stream_id or huddle_id is required")
 
     def get_users(self,
-                  stream_id: int) -> Set[int]:
-        users = self.stream_info[stream_id]
-        return users
+                  stream_id: Optional[int]=None,
+                  huddle_id: Optional[int]=None) -> Set[int]:
+        if stream_id is not None:
+            return self.stream_info[stream_id]
+        elif huddle_id is not None:
+            return self.huddle_info[huddle_id]
+        else:
+            raise AssertionError("stream_id or huddle_id is required")
 
 def build_zerver_realm(realm_id: int, realm_subdomain: str, time: float,
                        other_product: str) -> List[ZerverFieldsT]:
@@ -50,8 +63,7 @@ def build_user_profile(avatar_source: str,
                        full_name: str,
                        id: int,
                        is_active: bool,
-                       is_realm_admin: bool,
-                       is_guest: bool,
+                       role: int,
                        is_mirror_dummy: bool,
                        realm_id: int,
                        short_name: str,
@@ -66,8 +78,7 @@ def build_user_profile(avatar_source: str,
         id=id,
         is_mirror_dummy=is_mirror_dummy,
         is_active=is_active,
-        is_realm_admin=is_realm_admin,
-        is_guest=is_guest,
+        role=role,
         pointer=pointer,
         realm_id=realm_id,
         short_name=short_name,
@@ -211,6 +222,34 @@ def build_stream_subscriptions(
 
     return subscriptions
 
+def build_huddle_subscriptions(
+        get_users: Callable[..., Set[int]],
+        zerver_recipient: List[ZerverFieldsT],
+        zerver_huddle: List[ZerverFieldsT]) -> List[ZerverFieldsT]:
+
+    subscriptions = []  # type: List[ZerverFieldsT]
+
+    huddle_ids = {huddle['id'] for huddle in zerver_huddle}
+
+    recipient_map = {
+        recipient['id']: recipient['type_id']  # recipient_id -> stream_id
+        for recipient in zerver_recipient
+        if recipient['type'] == Recipient.HUDDLE
+        and recipient['type_id'] in huddle_ids
+    }
+
+    for recipient_id, huddle_id in recipient_map.items():
+        user_ids = get_users(huddle_id=huddle_id)
+        for user_id in user_ids:
+            subscription = build_subscription(
+                recipient_id=recipient_id,
+                user_id=user_id,
+                subscription_id=NEXT_ID('subscription'),
+            )
+            subscriptions.append(subscription)
+
+    return subscriptions
+
 def build_personal_subscriptions(zerver_recipient: List[ZerverFieldsT]) -> List[ZerverFieldsT]:
 
     subscriptions = []  # type: List[ZerverFieldsT]
@@ -242,7 +281,8 @@ def build_recipient(type_id: int, recipient_id: int, type: int) -> ZerverFieldsT
     return recipient_dict
 
 def build_recipients(zerver_userprofile: List[ZerverFieldsT],
-                     zerver_stream: List[ZerverFieldsT]) -> List[ZerverFieldsT]:
+                     zerver_stream: List[ZerverFieldsT],
+                     zerver_huddle: List[ZerverFieldsT]=[]) -> List[ZerverFieldsT]:
     '''
     As of this writing, we only use this in the HipChat
     conversion.  The Slack and Gitter conversions do it more
@@ -273,6 +313,16 @@ def build_recipients(zerver_userprofile: List[ZerverFieldsT],
         recipient_dict = model_to_dict(recipient)
         recipients.append(recipient_dict)
 
+    for huddle in zerver_huddle:
+        type_id = huddle['id']
+        type = Recipient.HUDDLE
+        recipient = Recipient(
+            type_id=type_id,
+            id=NEXT_ID('recipient'),
+            type=type,
+        )
+        recipient_dict = model_to_dict(recipient)
+        recipients.append(recipient_dict)
     return recipients
 
 def build_realm(zerver_realm: List[ZerverFieldsT], realm_id: int,
@@ -382,13 +432,13 @@ def build_huddle(huddle_id: int) -> ZerverFieldsT:
     )
     return model_to_dict(huddle)
 
-def build_message(topic_name: str, pub_date: float, message_id: int, content: str,
+def build_message(topic_name: str, date_sent: float, message_id: int, content: str,
                   rendered_content: Optional[str], user_id: int, recipient_id: int,
                   has_image: bool=False, has_link: bool=False,
                   has_attachment: bool=True) -> ZerverFieldsT:
     zulip_message = Message(
         rendered_content_version=1,  # this is Zulip specific
-        pub_date=pub_date,
+        date_sent=date_sent,
         id=message_id,
         content=content,
         rendered_content=rendered_content,

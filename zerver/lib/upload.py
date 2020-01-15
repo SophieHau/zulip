@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple, Any
+from typing import Optional, Tuple, Any
 
 from django.utils.translation import ugettext as _
 from django.conf import settings
@@ -44,6 +44,17 @@ DEFAULT_EMOJI_SIZE = 64
 MAX_EMOJI_GIF_SIZE = 128
 MAX_EMOJI_GIF_FILE_SIZE_BYTES = 128 * 1024 * 1024  # 128 kb
 
+INLINE_MIME_TYPES = [
+    "application/pdf",
+    "image/gif",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    # To avoid cross-site scripting attacks, DO NOT add types such
+    # as application/xhtml+xml, application/x-shockwave-flash,
+    # image/svg+xml, text/html, or text/xml.
+]
+
 # Performance Note:
 #
 # For writing files to S3, the file could either be stored in RAM
@@ -61,13 +72,6 @@ MAX_EMOJI_GIF_FILE_SIZE_BYTES = 128 * 1024 * 1024  # 128 kb
 
 class RealmUploadQuotaError(JsonableError):
     code = ErrorCode.REALM_UPLOAD_QUOTA
-
-attachment_url_re = re.compile(r'[/\-]user[\-_]uploads[/\.-].*?(?=[ )]|\Z)')
-
-def attachment_url_to_path_id(attachment_url: str) -> str:
-    path_id_raw = re.sub(r'[/\-]user[\-_]uploads[/\.-]', '', attachment_url)
-    # Remove any extra '.' after file extension. These are probably added by the user
-    return re.sub('[.]+$', '', path_id_raw, re.M)
 
 def sanitize_name(value: str) -> str:
     """
@@ -248,6 +252,10 @@ class ZulipUploadBackend:
     def delete_export_tarball(self, path_id: str) -> Optional[str]:
         raise NotImplementedError()
 
+    def get_export_tarball_url(self, realm: Realm, export_path: str) -> str:
+        raise NotImplementedError()
+
+
 ### S3
 
 def get_bucket(conn: S3Connection, bucket_name: str) -> Bucket:
@@ -276,12 +284,13 @@ def upload_image_to_s3(
     key.set_metadata("user_profile_id", str(user_profile.id))
     key.set_metadata("realm_id", str(user_profile.realm_id))
 
+    headers = {}
     if content_type is not None:
-        headers = {'Content-Type': content_type}  # type: Optional[Dict[str, str]]
-    else:
-        headers = None
+        headers["Content-Type"] = content_type
+    if content_type not in INLINE_MIME_TYPES:
+        headers["Content-Disposition"] = "attachment"
 
-    key.set_contents_from_string(contents, headers=headers)  # type: ignore # https://github.com/python/typeshed/issues/1552
+    key.set_contents_from_string(contents, headers=headers)
 
 def check_upload_within_quota(realm: Realm, uploaded_file_size: int) -> None:
     upload_quota = realm.upload_quota_bytes()
@@ -316,19 +325,21 @@ def get_signed_upload_url(path: str) -> str:
 
 def get_realm_for_filename(path: str) -> Optional[int]:
     conn = S3Connection(settings.S3_KEY, settings.S3_SECRET_KEY)
-    key = get_bucket(conn, settings.S3_AUTH_UPLOADS_BUCKET).get_key(path)
+    key = get_bucket(conn, settings.S3_AUTH_UPLOADS_BUCKET).get_key(path)  # type: Optional[Key]
     if key is None:
         # This happens if the key does not exist.
         return None
     return get_user_profile_by_id(key.metadata["user_profile_id"]).realm_id
 
 class S3UploadBackend(ZulipUploadBackend):
+    def __init__(self) -> None:
+        self.connection = S3Connection(settings.S3_KEY, settings.S3_SECRET_KEY)
+
     def delete_file_from_s3(self, path_id: str, bucket_name: str) -> bool:
-        conn = S3Connection(settings.S3_KEY, settings.S3_SECRET_KEY)
-        bucket = get_bucket(conn, bucket_name)
+        bucket = get_bucket(self.connection, bucket_name)
 
         # check if file exists
-        key = bucket.get_key(path_id)
+        key = bucket.get_key(path_id)  # type: Optional[Key]
         if key is not None:
             bucket.delete_key(key)
             return True
@@ -418,9 +429,7 @@ class S3UploadBackend(ZulipUploadBackend):
         self.delete_file_from_s3(path_id, bucket_name)
 
     def get_avatar_key(self, file_name: str) -> Key:
-        conn = S3Connection(settings.S3_KEY, settings.S3_SECRET_KEY)
-        bucket_name = settings.S3_AVATAR_BUCKET
-        bucket = get_bucket(conn, bucket_name)
+        bucket = get_bucket(self.connection, settings.S3_AVATAR_BUCKET)
 
         key = bucket.get_key(file_name)
         return key
@@ -430,16 +439,22 @@ class S3UploadBackend(ZulipUploadBackend):
         s3_target_file_name = user_avatar_path(target_profile)
 
         key = self.get_avatar_key(s3_source_file_name + ".original")
-        image_data = key.get_contents_as_string()  # type: ignore # https://github.com/python/typeshed/issues/1552
+        image_data = key.get_contents_as_string()
         content_type = key.content_type
 
-        self.write_avatar_images(s3_target_file_name, target_profile, image_data, content_type)  # type: ignore # image_data is `bytes`, boto subs are wrong
+        self.write_avatar_images(s3_target_file_name, target_profile, image_data, content_type)
 
     def get_avatar_url(self, hash_key: str, medium: bool=False) -> str:
         bucket = settings.S3_AVATAR_BUCKET
         medium_suffix = "-medium.png" if medium else ""
         # ?x=x allows templates to append additional parameters with &s
-        return "https://%s.s3.amazonaws.com/%s%s?x=x" % (bucket, hash_key, medium_suffix)
+        return "https://%s.%s/%s%s?x=x" % (bucket, self.connection.DefaultHost,
+                                           hash_key, medium_suffix)
+
+    def get_export_tarball_url(self, realm: Realm, export_path: str) -> str:
+        bucket = settings.S3_AVATAR_BUCKET
+        # export_path has a leading /
+        return "https://%s.s3.amazonaws.com%s" % (bucket, export_path)
 
     def upload_realm_icon_image(self, icon_file: File, user_profile: UserProfile) -> None:
         content_type = guess_type(icon_file.name)[0]
@@ -469,7 +484,8 @@ class S3UploadBackend(ZulipUploadBackend):
     def get_realm_icon_url(self, realm_id: int, version: int) -> str:
         bucket = settings.S3_AVATAR_BUCKET
         # ?x=x allows templates to append additional parameters with &s
-        return "https://%s.s3.amazonaws.com/%s/realm/icon.png?version=%s" % (bucket, realm_id, version)
+        return "https://%s.%s/%s/realm/icon.png?version=%s" % (
+            bucket, self.connection.DefaultHost, realm_id, version)
 
     def upload_realm_logo_image(self, logo_file: File, user_profile: UserProfile,
                                 night: bool) -> None:
@@ -508,19 +524,19 @@ class S3UploadBackend(ZulipUploadBackend):
             file_name = 'logo.png'
         else:
             file_name = 'night_logo.png'
-        return "https://%s.s3.amazonaws.com/%s/realm/%s?version=%s" % (bucket, realm_id, file_name, version)
+        return "https://%s.%s/%s/realm/%s?version=%s" % (
+            bucket, self.connection.DefaultHost, realm_id, file_name, version)
 
     def ensure_medium_avatar_image(self, user_profile: UserProfile) -> None:
         file_path = user_avatar_path(user_profile)
         s3_file_name = file_path
 
         bucket_name = settings.S3_AVATAR_BUCKET
-        conn = S3Connection(settings.S3_KEY, settings.S3_SECRET_KEY)
-        bucket = get_bucket(conn, bucket_name)
+        bucket = get_bucket(self.connection, bucket_name)
         key = bucket.get_key(file_path + ".original")
         image_data = key.get_contents_as_string()
 
-        resized_medium = resize_avatar(image_data, MEDIUM_AVATAR_SIZE)  # type: ignore # image_data is `bytes`, boto subs are wrong
+        resized_medium = resize_avatar(image_data, MEDIUM_AVATAR_SIZE)
         upload_image_to_s3(
             bucket_name,
             s3_file_name + "-medium.png",
@@ -536,12 +552,11 @@ class S3UploadBackend(ZulipUploadBackend):
         s3_file_name = file_path
 
         bucket_name = settings.S3_AVATAR_BUCKET
-        conn = S3Connection(settings.S3_KEY, settings.S3_SECRET_KEY)
-        bucket = get_bucket(conn, bucket_name)
+        bucket = get_bucket(self.connection, bucket_name)
         key = bucket.get_key(file_path + ".original")
         image_data = key.get_contents_as_string()
 
-        resized_avatar = resize_avatar(image_data)  # type: ignore # image_data is `bytes`, boto subs are wrong
+        resized_avatar = resize_avatar(image_data)
         upload_image_to_s3(
             bucket_name,
             s3_file_name,
@@ -580,7 +595,7 @@ class S3UploadBackend(ZulipUploadBackend):
         bucket = settings.S3_AVATAR_BUCKET
         emoji_path = RealmEmoji.PATH_ID_TEMPLATE.format(realm_id=realm_id,
                                                         emoji_file_name=emoji_file_name)
-        return "https://%s.s3.amazonaws.com/%s" % (bucket, emoji_path)
+        return "https://%s.%s/%s" % (bucket, self.connection.DefaultHost, emoji_path)
 
     def upload_export_tarball(self, realm: Optional[Realm], tarball_path: str) -> str:
         def percent_callback(complete: Any, total: Any) -> None:
@@ -802,6 +817,10 @@ class LocalUploadBackend(ZulipUploadBackend):
         if delete_local_file('avatars', file_path):
             return path_id
         return None
+
+    def get_export_tarball_url(self, realm: Realm, export_path: str) -> str:
+        # export_path has a leading `/`
+        return realm.uri + export_path
 
 # Common and wrappers
 if settings.LOCAL_UPLOADS_DIR is not None:

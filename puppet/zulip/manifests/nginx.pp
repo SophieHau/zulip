@@ -3,7 +3,6 @@ class zulip::nginx {
   $web_packages = [
     # Needed to run nginx with the modules we use
     $zulip::common::nginx,
-    'openssl',
     'ca-certificates',
   ]
   package { $web_packages: ensure => 'installed' }
@@ -49,12 +48,21 @@ class zulip::nginx {
     source  => $uploads_route,
   }
 
-  exec { 'dhparam':
-    command => 'openssl dhparam -out /etc/nginx/dhparam.pem 2048',
-    creates => '/etc/nginx/dhparam.pem',
-    require => Package[$zulip::common::nginx, 'openssl'],
+  file { '/etc/nginx/dhparam.pem':
+    ensure  => file,
+    require => Package[$zulip::common::nginx],
+    owner   => 'root',
+    group   => 'root',
+    mode    => '0644',
+    notify  => Service['nginx'],
+    source  => 'puppet:///modules/zulip/nginx/dhparam.pem',
   }
 
+  if $::osfamily == 'debian' {
+      $ca_crt = '/etc/ssl/certs/ca-certificates.crt'
+  } else {
+      $ca_crt = '/etc/pki/tls/certs/ca-bundle.crt'
+  }
   file { '/etc/nginx/nginx.conf':
     ensure  => file,
     require => Package[$zulip::common::nginx, 'ca-certificates'],
@@ -62,7 +70,7 @@ class zulip::nginx {
     group   => 'root',
     mode    => '0644',
     notify  => Service['nginx'],
-    source  => 'puppet:///modules/zulip/nginx/nginx.conf',
+    content => template('zulip/nginx.conf.template.erb'),
   }
 
   file { '/etc/nginx/uwsgi_params':

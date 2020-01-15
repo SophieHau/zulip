@@ -1,7 +1,3 @@
-var message_util = (function () {
-
-var exports = {};
-
 exports.do_unread_count_updates = function do_unread_count_updates(messages) {
     unread.process_loaded_messages(messages);
     unread_ui.update_unread_counts();
@@ -16,7 +12,7 @@ function add_messages(messages, msg_list, opts) {
     loading.destroy_indicator($('#page_loading_indicator'));
     $('#first_run_message').remove();
 
-    var render_info = msg_list.add_messages(messages, opts);
+    const render_info = msg_list.add_messages(messages, opts);
 
     return render_info;
 }
@@ -29,10 +25,4 @@ exports.add_new_messages = function (messages, msg_list) {
 };
 
 
-return exports;
-
-}());
-if (typeof module !== 'undefined') {
-    module.exports = message_util;
-}
-window.message_util = message_util;
+window.message_util = exports;

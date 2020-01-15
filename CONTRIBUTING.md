@@ -75,8 +75,6 @@ to help.
   [#git help](https://chat.zulip.org/#narrow/stream/44-git-help) if
   you run into any troubles.  Be sure to check out the
   [extremely useful Zulip-specific tools page](https://zulip.readthedocs.io/en/latest/git/zulip-tools.html).
-* Sign the
-  [Dropbox Contributor License Agreement](https://opensource.dropbox.com/cla/).
 
 ### Picking an issue
 
@@ -278,10 +276,10 @@ quickly become core team members. We hope you apply!
 
 ### Google Summer of Code
 
-GSoC is by far the largest of our internship programs (we had 14 GSoC
-students in summer 2017).  While we don't control how many slots
+GSoC is by far the largest of our internship programs (14 students in
+2017; 11 in 2018; 17 in 2019).  While we don't control how many slots
 Google allocates to Zulip, we hope to mentor a similar number of
-students in 2018.
+students in future summers.
 
 If you're reading this well before the application deadline and want
 to make your application strong, we recommend getting involved in the

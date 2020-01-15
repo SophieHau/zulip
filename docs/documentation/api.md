@@ -9,14 +9,14 @@ it and helping ensure it stays up to date as Zulip's API changes.
 Our API documentation is defined by a few sets of files:
 
 * Most data describing API endpoints and examples is stored in our
-  [OpenAPI configuration](../documentation/openapi.html) at
+  [OpenAPI configuration](../documentation/openapi.md) at
   `zerver/openapi/zulip.yaml`.
 * The top-level templates live under `templates/zerver/api/*`, and are
   written using the markdown framework that powers our [user
-  docs](../documentation/user.html), with some special extensions for
+  docs](../documentation/user.md), with some special extensions for
   rendering nice code blocks and example responses.
 * The text for the Python examples comes from a test suite for the
-  Python API documentation (`zerver/lib/api_test_helpers.py`; run via
+  Python API documentation (`zerver/openapi/python_examples.py`; run via
   `tools/test-api`).  The `generate_code_example` macro will magically
   read content from that test suite and render it as the code example.
   This structure ensures that Zulip's API documentation is robust to a
@@ -93,7 +93,7 @@ Additionally, JavaScript examples should conform to the coding style
 and structure of [Zulip's existing JavaScript examples][javascript-examples].
 
 For the Python examples, you'll write the example in
-`zerver/lib/api_test_helpers.py`, and it'll be run and verified
+`zerver/openapi/python_examples.py`, and it'll be run and verified
 automatically in Zulip's automated test suite.  The code there will
 look something like this:
 
@@ -174,7 +174,7 @@ This section offers a step-by-step process for adding documentation
 for a new API endpoint.  It assumes you've read and understood the
 above.
 
-1. Start by adding [OpenAPI format](../documentation/openapi.html)
+1. Start by adding [OpenAPI format](../documentation/openapi.md)
    data to `zerver/openapi/zulip.yaml` for the endpoint.  If you
    copy-paste (which is helpful to get the indentation structure
    right), be sure to update all the content that you copied to
@@ -193,15 +193,15 @@ above.
    declared using `REQ`.
 
    You can check your formatting using two helpful tools.
-   * `tools/check-swagger` will verify the syntax of `zerver/openapi/zulip.yaml`.
-   * `test-backend zerver/tests/test_openapi.py`; this test compares
+   * `tools/check-openapi` will verify the syntax of `zerver/openapi/zulip.yaml`.
+   * `tools/test-backend zerver/tests/test_openapi.py`; this test compares
       your documentation against the code and can find many common
       mistakes in how arguments are declared.
 
    [rest-api-tutorial]: ../tutorials/writing-views.html#writing-api-rest-endpoints
 
 1. Add a function for the endpoint you'd like to document to
-   `zerver/lib/api_test_helpers.py`. `render_message` is a good
+   `zerver/openapi/python_examples.py`. `render_message` is a good
    example to follow.  There are generally two key pieces to your
    test: (1) doing an API query and (2) verifying its result has the
    expected format using `validate_against_openapi_schema`.
@@ -218,7 +218,7 @@ above.
 
 1. Add the function to the `TEST_FUNCTIONS` dict and one of the
    `test_*` functions at the end of
-   `zerver/lib/api_test_helpers.py`; these will ensure your function
+   `zerver/openapi/python_examples.py`; these will ensure your function
    will be called when running `test-api`.
 
 1. Capture the JSON response returned by the API call (the test

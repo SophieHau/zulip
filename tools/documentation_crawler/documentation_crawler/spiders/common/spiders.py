@@ -20,9 +20,13 @@ EXCLUDED_URLS = [
     'https://www.git-tower.com/blog/command-line-cheat-sheet/',
     'https://marketplace.visualstudio.com/items?itemName=rafaelmaiolla.remote-vscode',
     # Requires authentication
-    'https://circleci.com/gh/zulip/zulip',
+    'https://circleci.com/gh/zulip/zulip/tree/master',
     'https://circleci.com/gh/zulip/zulip/16617',
     'https://www.linkedin.com/company/zulip-project',
+    # Returns 403 errors to HEAD requests
+    'https://giphy.com',
+    'https://giphy.com/apps/giphycapture',
+    'https://www.udemy.com/course/the-complete-react-native-and-redux-course/',
 ]
 
 VNU_IGNORE = re.compile(r'|'.join([

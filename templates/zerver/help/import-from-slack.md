@@ -21,7 +21,13 @@ First, export your data from Slack.
 
 {start_tabs}
 
-1. [Export your Slack data](https://my.slack.com/services/export). You will
+1. [Generate a Slack Legacy API
+   token](https://api.slack.com/custom-integrations/legacy-tokens).
+   It will be a long string starting with `xoxp-`.  It is required to
+   fetch data that Slack doesn't include in their data exports, like
+   email addresses.
+
+2. [Export your Slack data](https://my.slack.com/services/export). You will
    receive a zip file `slack_data.zip`.
 
     !!! warn ""
@@ -30,7 +36,8 @@ First, export your data from Slack.
         [guide to data exports](https://get.slack.help/hc/en-us/articles/201658943-Export-data-and-message-history)
         for more information.
 
-2. [Generate a Slack API token](https://api.slack.com/custom-integrations/legacy-tokens).
+    This step will also generate a different token starting with
+    `xoxe-`; you don't need it.
 
 {end_tabs}
 
@@ -85,19 +92,20 @@ root domain. Replace the last line above with the following, after replacing
   [Slack's documentation](https://get.slack.help/hc/en-us/articles/204897248-Guide-to-Slack-import-and-export-tools)
   for more details.
 
-- (Slack Plus import) Direct messages are currently not imported. We
-  expect to address this in a future revision.
-
 - (Slack Plus import) Message edit history is currently not imported.
 
 - Slack doesn't export user settings or organization settings, so
   you'll need to configure these manually.
 
-- Permission hierarchy:
-    Slack's `Primary owner`, `owner`, and `admin` are mapped to Zulip's `Organization admin`.
-    Slack's `Member`, `restricted`, and `ultra restricted` are mapped to regular Zulip users.
-    `Channel creators` have no special permissions in Zulip.
+- Import of [user roles](/help/roles-and-permissions):
+    - Slack's `Workspace Primary Owner`, `Workspace Owner`, and
+      `Workspace Admin` users are mapped to Zulip's `Organization
+      administrator` users.
+    - Slack's `Member` users is mapped to Zulip `Member` users.
+    - Slack's `Single Channel Guest` and `Multi Channel Guest` users
+    are mapped to Zulip `Guest` users.
+    - Slack's `Channel creators` have no special permissions in Zulip.
 
 - The "joined #channel_name" messages are not imported.
 
-[upgrade-zulip-from-git]: https://zulip.readthedocs.io/en/latest/production/maintain-secure-upgrade.html#upgrading-from-a-git-repository
+[upgrade-zulip-from-git]: https://zulip.readthedocs.io/en/latest/production/upgrade-or-modify.html#upgrading-from-a-git-repository

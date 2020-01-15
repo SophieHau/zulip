@@ -1,6 +1,6 @@
 set_global('Handlebars', global.make_handlebars());
 zrequire('templates');
-zrequire('i18n', 'i18next');
+set_global('i18n', zrequire('i18n', 'i18next'));
 
 i18n.init({
     nsSeparator: false,
@@ -21,7 +21,7 @@ i18n.init({
 });
 
 run_test('t_tag', () => {
-    var args = {
+    const args = {
         message: {
             is_stream: true,
             id: "99",
@@ -35,12 +35,12 @@ run_test('t_tag', () => {
         narrowed: true,
     };
 
-    var html = require('../../static/templates/actions_popover_content.hbs')(args);
+    const html = require('../../static/templates/actions_popover_content.hbs')(args);
     assert(html.indexOf("French translation") > 0);
 });
 
 run_test('tr_tag', () => {
-    var args = {
+    const args = {
         page_params: {
             full_name: "John Doe",
             password_auth_enabled: false,
@@ -59,6 +59,6 @@ run_test('tr_tag', () => {
         },
     };
 
-    var html = require('../../static/templates/settings_tab.hbs')(args);
+    const html = require('../../static/templates/settings_tab.hbs')(args);
     assert(html.indexOf('Some French text') > 0);
 });

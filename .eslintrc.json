@@ -4,6 +4,7 @@
         "es6": true
     },
     "parserOptions": {
+        "ecmaVersion": 2019,
         "warnOnUnsupportedTypeScriptVersion": false,
         "sourceType": "module"
     },
@@ -148,6 +149,7 @@
         "settings_bots": false,
         "settings_display": false,
         "settings_emoji": false,
+        "settings_exports": false,
         "settings_linkifiers": false,
         "settings_invites": false,
         "settings_muting": false,
@@ -179,7 +181,6 @@
         "templates": false,
         "tictactoe_widget": false,
         "timerender": false,
-        "toMarkdown": false,
         "todo_widget": false,
         "top_left_corner": false,
         "topic_data": false,
@@ -192,7 +193,6 @@
         "typing": false,
         "typing_data": false,
         "typing_events": false,
-        "typing_status": false,
         "ui": false,
         "ui_init": false,
         "ui_report": false,
@@ -251,7 +251,6 @@
         "guard-for-in": "error",
         "indent": ["error", 4, {
             "ArrayExpression": "first",
-            "outerIIFEBody": 0,
             "ObjectExpression": "first",
             "SwitchCase": 0,
             "CallExpression": {"arguments": "first"},
@@ -369,6 +368,7 @@
         // Updated regex expressions are currently being tested in casper
         // files and will decide about a potential future enforcement of this rule.
         "no-useless-escape": "off",
+        "no-var": "error",
         "space-unary-ops": "error",
         "no-whitespace-before-property": "error",
         "no-with": "error",
@@ -391,6 +391,7 @@
         "radix": "error",
         "semi": "error",
         "semi-spacing": ["error", {"before": false, "after": true}],
+        "sort-imports": "error",
         "space-before-blocks": "error",
         "space-before-function-paren": [ "error",
             {
@@ -413,10 +414,19 @@
     },
     "overrides": [
         {
+            "files": [
+                "frontend_tests/casper_tests/*.js",
+                "frontend_tests/casper_lib/*.js"
+            ],
+            "rules": {
+                "no-var": "off" // PhantomJS doesn’t support let, const
+            }
+        },
+        {
             "files": ["**/*.ts"],
             "parser": "@typescript-eslint/parser",
             "parserOptions": {
-                "project": "static/js/tsconfig.json"
+                "project": "tsconfig.json"
             },
             "plugins": ["@typescript-eslint"],
             "rules": {
@@ -427,6 +437,7 @@
                 "no-magic-numbers": "off",
                 "semi": "off",
                 "no-unused-vars": "off",
+                "no-useless-constructor": "off",
 
                 "@typescript-eslint/adjacent-overload-signatures": "error",
                 "@typescript-eslint/array-type": "error",
@@ -435,6 +446,7 @@
                 "@typescript-eslint/ban-ts-ignore": "off",
                 "@typescript-eslint/camelcase": "off",
                 "@typescript-eslint/class-name-casing": "error",
+                "@typescript-eslint/consistent-type-assertions": "error",
                 "@typescript-eslint/explicit-function-return-type": ["error", { "allowExpressions": true }],
                 "@typescript-eslint/explicit-member-accessibility": "off",
                 "@typescript-eslint/func-call-spacing": "error",
@@ -444,22 +456,19 @@
                 "@typescript-eslint/member-delimiter-style": "error",
                 "@typescript-eslint/member-naming": ["error", { "private": "^_" } ],
                 "@typescript-eslint/member-ordering": "error",
-                "@typescript-eslint/no-angle-bracket-type-assertion": "error",
                 "@typescript-eslint/no-array-constructor": "error",
                 "@typescript-eslint/no-empty-interface": "error",
                 "@typescript-eslint/no-explicit-any": "off",
                 "@typescript-eslint/no-extraneous-class": "error",
                 "@typescript-eslint/no-for-in-array": "off",
                 "@typescript-eslint/no-inferrable-types": "error",
-                "@typescript-eslint/no-magic-numbers": "error",
+                "@typescript-eslint/no-magic-numbers": "off",
                 "@typescript-eslint/no-misused-new": "error",
                 "@typescript-eslint/no-namespace": "error",
                 "@typescript-eslint/no-non-null-assertion": "off",
-                "@typescript-eslint/no-object-literal-type-assertion": "error",
                 "@typescript-eslint/no-parameter-properties": "error",
                 "@typescript-eslint/no-require-imports": "off",
                 "@typescript-eslint/no-this-alias": "off",
-                "@typescript-eslint/no-triple-slash-reference": "error",
                 "@typescript-eslint/no-type-alias": "off",
                 "@typescript-eslint/no-unnecessary-qualifier": "error",
                 "@typescript-eslint/no-unnecessary-type-assertion": "error",
@@ -477,6 +486,7 @@
                 "@typescript-eslint/promise-function-async": "error",
                 "@typescript-eslint/restrict-plus-operands": "off",
                 "@typescript-eslint/semi": "error",
+                "@typescript-eslint/triple-slash-reference": "error",
                 "@typescript-eslint/type-annotation-spacing": "error",
                 "@typescript-eslint/unbound-method": "off",
                 "@typescript-eslint/unified-signatures": "error"

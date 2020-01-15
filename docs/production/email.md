@@ -19,7 +19,7 @@ email addresses and send notifications.
    example: `email_password = abcd1234`.
 
    Like any other change to the Zulip configuration, be sure to
-   [restart the server](settings.html) to make your changes take
+   [restart the server](settings.md) to make your changes take
    effect.
 
 1. Configure your SMTP server to allows your Zulip server to send
@@ -39,7 +39,7 @@ email addresses and send notifications.
    configuration is working.
 
 1. Once your configuration is working, restart the Zulip server with
-   `/home/zulip/deployments/current/scripts/restart`.
+   `su zulip -c '/home/zulip/deployments/current/scripts/restart-server'`.
 
 ## Email services
 
@@ -62,7 +62,7 @@ find the service's provided "SMTP credentials", and configure Zulip as
 follows:
 
 * The hostname like `EMAIL_HOST = 'smtp.mailgun.org'` in `/etc/zulip/settings.py`
-* The username like `EMAIL_HOST_USER = 'username@example.com` in
+* The username like `EMAIL_HOST_USER = 'username@example.com'` in
   `/etc/zulip/settings.py`.
 * The TLS setting as `EMAIL_USE_TLS = True` in
   `/etc/zulip/settings.py`, for most providers
@@ -142,7 +142,7 @@ su zulip -c '/home/zulip/deployments/current/manage.py send_test_email user@exam
 ```
 
 If it doesn't throw an error, it probably worked; you can confirm by
-checking your email.  You should get two emails: One sent by a the
+checking your email.  You should get two emails: One sent by the
 default From address for your Zulip server, and one sent by the
 "noreply" From address.
 

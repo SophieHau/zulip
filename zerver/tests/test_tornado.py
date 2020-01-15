@@ -181,18 +181,18 @@ class TornadoTestCase(WebSocketBaseTestCase):
         return view_func(request, user_profile)
 
     @staticmethod
-    def get_cookie_header(cookies: SimpleCookie) -> str:
+    def get_cookie_header(cookies: "SimpleCookie[str]") -> str:
         return ';'.join(
             ["{}={}".format(name, value.value) for name, value in cookies.items()])
 
-    def _get_cookies(self, user_profile: UserProfile) -> SimpleCookie:
+    def _get_cookies(self, user_profile: UserProfile) -> "SimpleCookie[str]":
         resp = self.login_with_return(user_profile.email)
         return resp.cookies
 
     @gen.coroutine
     def _websocket_auth(self, ws: Any,
                         queue_events_data: Dict[str, Dict[str, str]],
-                        cookies: SimpleCookie) -> Generator[str, str, None]:
+                        cookies: "SimpleCookie[str]") -> Generator[str, str, None]:
         auth_queue_id = ':'.join((queue_events_data['response']['queue_id'], '0'))
         message = {
             "req_id": auth_queue_id,
@@ -216,14 +216,12 @@ class TornadoTestCase(WebSocketBaseTestCase):
             'queue_id': None,
             'narrow': [],
             'handler_id': 0,
-            'user_profile_email': user_profile.email,
             'all_public_streams': False,
             'client_type_name': 'website',
             'new_queue_data': {
                 'apply_markdown': True,
                 'client_gravatar': False,
                 'narrow': [],
-                'user_profile_email': user_profile.email,
                 'all_public_streams': False,
                 'realm_id': user_profile.realm_id,
                 'client_type_name': 'website',

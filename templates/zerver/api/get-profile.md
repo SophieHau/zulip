@@ -1,6 +1,6 @@
 # Get profile
 
-Get the profile of the user/bot that requests this endpoint.
+Get basic data about the user/bot that requests this endpoint.
 
 `GET {{ api_url }}/v1/users/me`
 
@@ -9,7 +9,7 @@ Get the profile of the user/bot that requests this endpoint.
 {start_tabs}
 {tab|python}
 
-{generate_code_example(python)|get-profile|example}
+{generate_code_example(python)|/users/me:get|example}
 
 {tab|js}
 
@@ -31,10 +31,7 @@ zulip(config).then((client) => {
 
 {tab|curl}
 
-``` curl
-curl -X GET {{ api_url }}/v1/users/me \
-    -u BOT_EMAIL_ADDRESS:BOT_API_KEY
-```
+{generate_code_example(curl)|/users/me:get|example}
 
 {end_tabs}
 
@@ -56,4 +53,4 @@ The rest of the return values are quite self-descriptive.
 
 A typical successful JSON response may look like:
 
-{generate_code_example|get-profile|fixture}
+{generate_code_example|/users/me:get|fixture(200)}

@@ -1,15 +1,17 @@
 from enum import Enum
-from typing import Any, Dict, List, Type, Optional
-from mypy_extensions import NoReturn
+from typing import Any, Dict, List, Type, TypeVar, Optional
+from typing_extensions import NoReturn
 
 from django.core.exceptions import PermissionDenied
 from django.utils.translation import ugettext as _
 
 
+T = TypeVar("T", bound="AbstractEnum")
+
 class AbstractEnum(Enum):
     '''An enumeration whose members are used strictly for their names.'''
 
-    def __new__(cls: Type['AbstractEnum']) -> 'AbstractEnum':
+    def __new__(cls: Type[T]) -> T:
         obj = object.__new__(cls)
         obj._value_ = len(cls.__members__) + 1
         return obj
@@ -188,6 +190,18 @@ class InvalidJSONError(JsonableError):
     def msg_format() -> str:
         return _("Malformed JSON")
 
+class OrganizationAdministratorRequired(JsonableError):
+    code = ErrorCode.UNAUTHORIZED_PRINCIPAL  # type: ErrorCode
+
+    ADMIN_REQUIRED_MESSAGE = _("Must be an organization administrator")
+
+    def __init__(self) -> None:
+        super().__init__(self.ADMIN_REQUIRED_MESSAGE)
+
+    @staticmethod
+    def msg_format() -> str:
+        return OrganizationAdministratorRequired.ADMIN_REQUIRED_MESSAGE
+
 class BugdownRenderingException(Exception):
     pass
 
@@ -201,6 +215,11 @@ class InvalidAPIKeyError(JsonableError):
     @staticmethod
     def msg_format() -> str:
         return _("Invalid API key")
+
+class InvalidAPIKeyFormatError(InvalidAPIKeyError):
+    @staticmethod
+    def msg_format() -> str:
+        return _("Malformed API key")
 
 class UnexpectedWebhookEventType(JsonableError):
     code = ErrorCode.UNEXPECTED_WEBHOOK_EVENT_TYPE

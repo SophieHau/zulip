@@ -34,7 +34,8 @@ from zerver.views.auth import create_preregistration_user, redirect_and_log_into
     redirect_to_deactivation_notice, get_safe_redirect_to
 
 from zproject.backends import ldap_auth_enabled, password_auth_enabled, \
-    ZulipLDAPExceptionOutsideDomain, email_auth_enabled
+    ZulipLDAPExceptionNoMatchingLDAPUser, email_auth_enabled, ZulipLDAPAuthBackend, \
+    email_belongs_to_ldap, any_social_backend_enabled
 
 from confirmation.models import Confirmation, RealmCreationKey, ConfirmationKeyException, \
     validate_key, create_confirmation_link, get_object_from_key, \
@@ -109,7 +110,7 @@ def accounts_register(request: HttpRequest) -> HttpResponse:
 
         try:
             validate_email_for_realm(realm, email)
-        except ValidationError:  # nocoverage # We need to add a test for this.
+        except ValidationError:
             return HttpResponseRedirect(reverse('django.contrib.auth.views.login') + '?email=' +
                                         urllib.parse.quote_plus(email))
 
@@ -122,7 +123,57 @@ def accounts_register(request: HttpRequest) -> HttpResponse:
             del request.session['authenticated_full_name']
         except KeyError:
             pass
-        if realm is not None and realm.is_zephyr_mirror_realm:
+
+        ldap_full_name = None
+        if settings.POPULATE_PROFILE_VIA_LDAP:
+            # If the user can be found in LDAP, we'll take the full name from the directory,
+            # and further down create a form pre-filled with it.
+            for backend in get_backends():
+                if isinstance(backend, LDAPBackend):
+                    try:
+                        ldap_username = backend.django_to_ldap_username(email)
+                    except ZulipLDAPExceptionNoMatchingLDAPUser:
+                        logging.warning("New account email %s could not be found in LDAP" % (email,))
+                        break
+
+                    # Note that this `ldap_user` object is not a
+                    # `ZulipLDAPUser` with a `Realm` attached, so
+                    # calling `.populate_user()` on it will crash.
+                    # This is OK, since we're just accessing this user
+                    # to extract its name.
+                    #
+                    # TODO: We should potentially be accessing this
+                    # user to sync its initial avatar and custom
+                    # profile fields as well, if we indeed end up
+                    # creating a user account through this flow,
+                    # rather than waiting until `manage.py
+                    # sync_ldap_user_data` runs to populate it.
+                    ldap_user = _LDAPUser(backend, ldap_username)
+
+                    try:
+                        ldap_full_name, _ = backend.get_mapped_name(ldap_user)
+                    except TypeError:
+                        break
+
+                    # Check whether this is ZulipLDAPAuthBackend,
+                    # which is responsible for authentication and
+                    # requires that LDAP accounts enter their LDAP
+                    # password to register, or ZulipLDAPUserPopulator,
+                    # which just populates UserProfile fields (no auth).
+                    require_ldap_password = isinstance(backend, ZulipLDAPAuthBackend)
+                    break
+
+        if ldap_full_name:
+            # We don't use initial= here, because if the form is
+            # complete (that is, no additional fields need to be
+            # filled out by the user) we want the form to validate,
+            # so they can be directly registered without having to
+            # go through this interstitial.
+            form = RegistrationForm({'full_name': ldap_full_name},
+                                    realm_creation=realm_creation)
+            request.session['authenticated_full_name'] = ldap_full_name
+            name_validated = True
+        elif realm is not None and realm.is_zephyr_mirror_realm:
             # For MIT users, we can get an authoritative name from Hesiod.
             # Technically we should check that this is actually an MIT
             # realm, but we can cross that bridge if we ever get a non-MIT
@@ -132,34 +183,15 @@ def accounts_register(request: HttpRequest) -> HttpResponse:
                 initial={'full_name': hesiod_name if "@" not in hesiod_name else ""},
                 realm_creation=realm_creation)
             name_validated = True
-        elif settings.POPULATE_PROFILE_VIA_LDAP:
-            for backend in get_backends():
-                if isinstance(backend, LDAPBackend):
-                    try:
-                        ldap_username = backend.django_to_ldap_username(email)
-                    except ZulipLDAPExceptionOutsideDomain:
-                        logging.warning("New account email %s could not be found in LDAP" % (email,))
-                        form = RegistrationForm(realm_creation=realm_creation)
-                        break
-
-                    ldap_user = _LDAPUser(backend, ldap_username)
-
-                    try:
-                        ldap_full_name, _ = backend.get_mapped_name(ldap_user)
-                        request.session['authenticated_full_name'] = ldap_full_name
-                        name_validated = True
-                        # We don't use initial= here, because if the form is
-                        # complete (that is, no additional fields need to be
-                        # filled out by the user) we want the form to validate,
-                        # so they can be directly registered without having to
-                        # go through this interstitial.
-                        form = RegistrationForm({'full_name': ldap_full_name},
-                                                realm_creation=realm_creation)
-                        require_ldap_password = True
-                        break
-                    except TypeError:
-                        # Let the user fill out a name and/or try another backend
-                        form = RegistrationForm(realm_creation=realm_creation)
+        elif prereg_user.full_name:
+            if prereg_user.full_name_validated:
+                request.session['authenticated_full_name'] = prereg_user.full_name
+                name_validated = True
+                form = RegistrationForm({'full_name': prereg_user.full_name},
+                                        realm_creation=realm_creation)
+            else:
+                form = RegistrationForm(initial={'full_name': prereg_user.full_name},
+                                        realm_creation=realm_creation)
         elif 'full_name' in request.POST:
             form = RegistrationForm(
                 initial={'full_name': request.POST.get('full_name')},
@@ -179,14 +211,19 @@ def accounts_register(request: HttpRequest) -> HttpResponse:
             except KeyError:
                 pass
         form = RegistrationForm(postdata, realm_creation=realm_creation)
-        if not (password_auth_enabled(realm) and password_required):
-            form['password'].field.required = False
+
+    if not (password_auth_enabled(realm) and password_required):
+        form['password'].field.required = False
 
     if form.is_valid():
-        if password_auth_enabled(realm):
+        if password_auth_enabled(realm) and form['password'].field.required:
             password = form.cleaned_data['password']
         else:
-            # SSO users don't need no passwords
+            # If the user wasn't prompted for a password when
+            # completing the authentication form (because they're
+            # signing up with SSO and no password is required), set
+            # the password field to `None` (Which causes Django to
+            # create an unusable password).
             password = None
 
         if realm_creation:
@@ -218,6 +255,7 @@ def accounts_register(request: HttpRequest) -> HttpResponse:
         else:
             existing_user_profile = None
 
+        user_profile = None  # type: Optional[UserProfile]
         return_data = {}  # type: Dict[str, bool]
         if ldap_auth_enabled(realm):
             # If the user was authenticated using an external SSO
@@ -232,36 +270,45 @@ def accounts_register(request: HttpRequest) -> HttpResponse:
             # But if the realm is using LDAPAuthBackend, we need to verify
             # their LDAP password (which will, as a side effect, create
             # the user account) here using authenticate.
-            auth_result = authenticate(request,
-                                       username=email,
-                                       password=password,
-                                       realm=realm,
-                                       prereg_user=prereg_user,
-                                       return_data=return_data)
-            if auth_result is not None:
+            # pregeg_user.realm_creation carries the information about whether
+            # we're in realm creation mode, and the ldap flow will handle
+            # that and create the user with the appropriate parameters.
+            user_profile = authenticate(request,
+                                        username=email,
+                                        password=password,
+                                        realm=realm,
+                                        prereg_user=prereg_user,
+                                        return_data=return_data)
+            if user_profile is None:
+                can_use_different_backend = email_auth_enabled(realm) or any_social_backend_enabled(realm)
+                if settings.LDAP_APPEND_DOMAIN:
+                    # In LDAP_APPEND_DOMAIN configurations, we don't allow making a non-ldap account
+                    # if the email matches the ldap domain.
+                    can_use_different_backend = can_use_different_backend and (
+                        not email_belongs_to_ldap(realm, email))
+                if return_data.get("no_matching_ldap_user") and can_use_different_backend:
+                    # If both the LDAP and Email or Social auth backends are
+                    # enabled, and there's no matching user in the LDAP
+                    # directory then the intent is to create a user in the
+                    # realm with their email outside the LDAP organization
+                    # (with e.g. a password stored in the Zulip database,
+                    # not LDAP).  So we fall through and create the new
+                    # account.
+                    pass
+                else:
+                    # TODO: This probably isn't going to give a
+                    # user-friendly error message, but it doesn't
+                    # particularly matter, because the registration form
+                    # is hidden for most users.
+                    return HttpResponseRedirect(reverse('django.contrib.auth.views.login') + '?email=' +
+                                                urllib.parse.quote_plus(email))
+            elif not realm_creation:
                 # Since we'll have created a user, we now just log them in.
-                return login_and_go_to_home(request, auth_result)
-
-            if return_data.get("outside_ldap_domain") and email_auth_enabled(realm):
-                # If both the LDAP and Email auth backends are
-                # enabled, and the user's email is outside the LDAP
-                # domain, then the intent is to create a user in the
-                # realm with their email outside the LDAP organization
-                # (with e.g. a password stored in the Zulip database,
-                # not LDAP).  So we fall through and create the new
-                # account.
-                #
-                # It's likely that we can extend this block to the
-                # Google and GitHub auth backends with no code changes
-                # other than here.
-                pass
+                return login_and_go_to_home(request, user_profile)
             else:
-                # TODO: This probably isn't going to give a
-                # user-friendly error message, but it doesn't
-                # particularly matter, because the registration form
-                # is hidden for most users.
-                return HttpResponseRedirect(reverse('django.contrib.auth.views.login') + '?email=' +
-                                            urllib.parse.quote_plus(email))
+                # With realm_creation=True, we're going to return further down,
+                # after finishing up the creation process.
+                pass
 
         if existing_user_profile is not None and existing_user_profile.is_mirror_dummy:
             user_profile = existing_user_profile
@@ -271,7 +318,8 @@ def accounts_register(request: HttpRequest) -> HttpResponse:
             do_set_user_display_setting(user_profile, 'timezone', timezone)
             # TODO: When we clean up the `do_activate_user` code path,
             # make it respect invited_as_admin / is_realm_admin.
-        else:
+
+        if user_profile is None:
             user_profile = do_create_user(email, password, realm, full_name, short_name,
                                           prereg_user=prereg_user,
                                           is_realm_admin=is_realm_admin,
@@ -301,7 +349,7 @@ def accounts_register(request: HttpRequest) -> HttpResponse:
         if return_data.get('invalid_subdomain'):
             # By construction, this should never happen.
             logging.error("Subdomain mismatch in registration %s: %s" % (
-                realm.subdomain, user_profile.email,))
+                realm.subdomain, user_profile.delivery_email,))
             return redirect('/')
 
         return login_and_go_to_home(request, auth_result)
@@ -486,12 +534,14 @@ def find_account(request: HttpRequest) -> HttpResponse:
         if form.is_valid():
             emails = form.cleaned_data['emails']
             for user in UserProfile.objects.filter(
-                    email__in=emails, is_active=True, is_bot=False, realm__deactivated=False):
+                    delivery_email__in=emails, is_active=True, is_bot=False,
+                    realm__deactivated=False):
                 context = common_context(user)
                 context.update({
-                    'email': user.email,
+                    'email': user.delivery_email,
                 })
-                send_email('zerver/emails/find_team', to_user_ids=[user.id], context=context)
+                send_email('zerver/emails/find_team', to_user_ids=[user.id], context=context,
+                           from_address=FromAddress.SUPPORT)
 
             # Note: Show all the emails in the result otherwise this
             # feature can be used to ascertain which email addresses

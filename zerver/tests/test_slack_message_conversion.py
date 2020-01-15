@@ -45,8 +45,8 @@ class SlackMessageConversion(ZulipTestCase):
             channel_map = {}     # type: Dict[str, Tuple[str, int]]
             converted = convert_to_zulip_markdown(test['input'], users, channel_map, slack_user_map)
             converted_text = converted[0]
-            print("Running Slack Message Conversion test: %s" % (name,))
-            self.assertEqual(converted_text, test['conversion_output'])
+            with self.subTest(slack_message_conversion=name):
+                self.assertEqual(converted_text, test['conversion_output'])
 
     def test_mentioned_data(self) -> None:
         slack_user_map = {'U08RGD1RD': 540,
@@ -57,13 +57,16 @@ class SlackMessageConversion(ZulipTestCase):
         users = [{"id": "U0CBK5KAT",
                   "name": "aaron.anzalone",
                   "deleted": False,
+                  "is_mirror_dummy": False,
                   "real_name": ""},
                  {"id": "U08RGD1RD",
                   "name": "john",
                   "deleted": False,
+                  "is_mirror_dummy": False,
                   "real_name": "John Doe"},
                  {"id": "U09TYF5Sk",
                   "name": "Jane",
+                  "is_mirror_dummy": False,
                   "deleted": True}]              # Deleted users don't have 'real_name' key in Slack
         channel_map = {'general': ('C5Z73A7RA', 137)}
         message = 'Hi <@U08RGD1RD|john>: How are you? <#C5Z73A7RA|general>'

@@ -1,6 +1,4 @@
-var localstorage = (function () {
-
-var ls = {
+const ls = {
     // parse JSON without throwing an error.
     parseJSON: function (str) {
         try {
@@ -31,8 +29,8 @@ var ls = {
     },
 
     getData: function (version, name) {
-        var key = this.formGetter(version, name);
-        var data = localStorage.getItem(key);
+        const key = this.formGetter(version, name);
+        let data = localStorage.getItem(key);
         data = ls.parseJSON(data);
 
         if (data) {
@@ -48,23 +46,23 @@ var ls = {
 
     // set the wrapped version of the data into localStorage.
     setData: function (version, name, data, expires) {
-        var key = this.formGetter(version, name);
-        var val = this.formData(data, expires);
+        const key = this.formGetter(version, name);
+        const val = this.formData(data, expires);
 
         localStorage.setItem(key, JSON.stringify(val));
     },
 
     // remove the key from localStorage and from memory.
     removeData: function (version, name) {
-        var key = this.formGetter(version, name);
+        const key = this.formGetter(version, name);
 
         localStorage.removeItem(key);
     },
 
     // Remove keys which match a regex.
     removeDataRegex: function (version, regex) {
-        var key_regex = new RegExp(this.formGetter(version, regex));
-        var keys = Object.keys(localStorage).filter(function (key) {
+        const key_regex = new RegExp(this.formGetter(version, regex));
+        const keys = Object.keys(localStorage).filter(function (key) {
             return key_regex.test(key);
         });
 
@@ -76,11 +74,11 @@ var ls = {
     // migrate from an older version of a data src to a newer one with a
     // specified callback function.
     migrate: function (name, v1, v2, callback) {
-        var old = this.getData(v1, name);
+        const old = this.getData(v1, name);
         this.removeData(v1, name);
 
         if (old && old.__valid) {
-            var data = callback(old.data);
+            const data = callback(old.data);
             this.setData(v2, name, data, Infinity);
 
             return data;
@@ -89,14 +87,14 @@ var ls = {
 };
 
 // return a new function instance that has instance-scoped variables.
-var exports = function () {
-    var _data = {
+const localstorage = function () {
+    const _data = {
         VERSION: 1,
         expires: Infinity,
         expiresIsGlobal: false,
     };
 
-    var prototype = {
+    const prototype = {
         // `expires` should be a Number that represents the number of ms from
         // now that this should expire in.
         // this allows for it to either be set only once or permanently.
@@ -108,7 +106,7 @@ var exports = function () {
         },
 
         get: function (name) {
-            var data = ls.getData(_data.VERSION, name);
+            const data = ls.getData(_data.VERSION, name);
 
             if (data) {
                 return data.data;
@@ -162,9 +160,9 @@ var exports = function () {
     return prototype;
 };
 
-var warned_of_localstorage = false;
+let warned_of_localstorage = false;
 
-exports.supported = function supports_localstorage() {
+localstorage.supported = function supports_localstorage() {
     try {
         return window.hasOwnProperty('localStorage') && window.localStorage !== null;
     } catch (e) {
@@ -176,10 +174,5 @@ exports.supported = function supports_localstorage() {
     }
 };
 
-return exports;
-}());
-
-if (typeof module !== 'undefined') {
-    module.exports = localstorage;
-}
+module.exports = localstorage;
 window.localstorage = localstorage;

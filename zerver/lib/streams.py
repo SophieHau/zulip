@@ -1,13 +1,14 @@
-
-from typing import Any, Iterable, List, Mapping, Set, Tuple, Optional
+from typing import Any, Iterable, List, Mapping, Set, Tuple, Optional, Union
 
 from django.utils.translation import ugettext as _
 
 from zerver.lib.actions import check_stream_name, create_streams_if_needed
 from zerver.lib.request import JsonableError
 from zerver.models import UserProfile, Stream, Subscription, \
-    Realm, Recipient, bulk_get_recipients, get_stream_recipient, get_stream, \
-    bulk_get_streams, get_realm_stream, DefaultStreamGroup
+    Realm, Recipient, get_stream, \
+    bulk_get_streams, get_realm_stream, DefaultStreamGroup, get_stream_by_id_in_realm
+
+from django.db.models.query import QuerySet
 
 def check_for_exactly_one_stream_arg(stream_id: Optional[int], stream: Optional[str]) -> None:
     if stream_id is None and stream is None:
@@ -51,7 +52,7 @@ def access_stream_common(user_profile: UserProfile, stream: Stream,
     if stream.realm_id != user_profile.realm_id:
         raise JsonableError(error)
 
-    recipient = get_stream_recipient(stream.id)
+    recipient = stream.recipient
 
     try:
         sub = Subscription.objects.get(user_profile=user_profile,
@@ -90,6 +91,10 @@ def access_stream_by_id(user_profile: UserProfile,
                                             require_active=require_active,
                                             allow_realm_admin=allow_realm_admin)
     return (stream, recipient, sub)
+
+def get_public_streams_queryset(realm: Realm) -> 'QuerySet[Stream]':
+    return Stream.objects.filter(realm=realm, invite_only=False,
+                                 history_public_to_subscribers=True)
 
 def get_stream_by_id(stream_id: int) -> Stream:
     error = _("Invalid stream id")
@@ -151,7 +156,7 @@ def access_stream_for_unmute_topic_by_id(user_profile: UserProfile,
         raise JsonableError(error)
     return stream
 
-def can_access_stream_history_by_name(user_profile: UserProfile, stream_name: str) -> bool:
+def can_access_stream_history(user_profile: UserProfile, stream: Stream) -> bool:
     """Determine whether the provided user is allowed to access the
     history of the target stream.  The stream is specified by name.
 
@@ -167,17 +172,12 @@ def can_access_stream_history_by_name(user_profile: UserProfile, stream_name: st
     access_stream is being called elsewhere to confirm that the user
     can actually see this stream.
     """
-    try:
-        stream = get_stream(stream_name, user_profile.realm)
-    except Stream.DoesNotExist:
-        return False
-
     if stream.is_history_realm_public() and not user_profile.is_guest:
         return True
 
     if stream.is_history_public_to_subscribers():
         # In this case, we check if the user is subscribed.
-        error = _("Invalid stream name '%s'") % (stream_name,)
+        error = _("Invalid stream name '%s'") % (stream.name,)
         try:
             (recipient, sub) = access_stream_common(user_profile, stream, error)
         except JsonableError:
@@ -185,12 +185,26 @@ def can_access_stream_history_by_name(user_profile: UserProfile, stream_name: st
         return True
     return False
 
+def can_access_stream_history_by_name(user_profile: UserProfile, stream_name: str) -> bool:
+    try:
+        stream = get_stream(stream_name, user_profile.realm)
+    except Stream.DoesNotExist:
+        return False
+    return can_access_stream_history(user_profile, stream)
+
+def can_access_stream_history_by_id(user_profile: UserProfile, stream_id: int) -> bool:
+    try:
+        stream = get_stream_by_id_in_realm(stream_id, user_profile.realm)
+    except Stream.DoesNotExist:
+        return False
+    return can_access_stream_history(user_profile, stream)
+
 def filter_stream_authorization(user_profile: UserProfile,
                                 streams: Iterable[Stream]) -> Tuple[List[Stream], List[Stream]]:
     streams_subscribed = set()  # type: Set[int]
-    recipients_map = bulk_get_recipients(Recipient.STREAM, [stream.id for stream in streams])
+    recipient_ids = [stream.recipient_id for stream in streams]
     subs = Subscription.objects.filter(user_profile=user_profile,
-                                       recipient__in=list(recipients_map.values()),
+                                       recipient_id__in=recipient_ids,
                                        active=True)
 
     for sub in subs:
@@ -283,3 +297,12 @@ def access_default_stream_group_by_id(realm: Realm, group_id: int) -> DefaultStr
         return DefaultStreamGroup.objects.get(realm=realm, id=group_id)
     except DefaultStreamGroup.DoesNotExist:
         raise JsonableError(_("Default stream group with id '%s' does not exist.") % (group_id,))
+
+def get_stream_by_narrow_operand_access_unchecked(operand: Union[str, int], realm: Realm) -> Stream:
+    """This is required over access_stream_* in certain cases where
+    we need the stream data only to prepare a response that user can access
+    and not send it out to unauthorized recipients.
+    """
+    if isinstance(operand, str):
+        return get_stream(operand, realm)
+    return get_stream_by_id_in_realm(operand, realm)

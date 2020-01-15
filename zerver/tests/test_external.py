@@ -48,12 +48,15 @@ class MITNameTest(ZulipTestCase):
 class RateLimitTests(ZulipTestCase):
 
     def setUp(self) -> None:
+        super().setUp()
         settings.RATE_LIMITING = True
         add_ratelimit_rule(1, 5)
 
     def tearDown(self) -> None:
         settings.RATE_LIMITING = False
         remove_ratelimit_rule(1, 5)
+
+        super().tearDown()
 
     def send_api_message(self, email: str, content: str) -> HttpResponse:
         return self.api_post(email, "/api/v1/messages", {"type": "stream",

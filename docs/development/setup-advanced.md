@@ -20,13 +20,16 @@ that's running one of:
 You can just run the Zulip provision script on your machine.
 
 **Note**: you should not use the `root` user to run the installation.
-If you are using a [remote server](../development/remote.html), see
+If you are using a [remote server](../development/remote.md), see
 the
 [section on creating appropriate user accounts](../development/remote.html#setting-up-user-accounts).
 
-**Warning**: there is no supported uninstallation process with this
-method.  If you want that, use the Vagrant environment, where you can
-just do `vagrant destroy` to clean up the development environment.
+```eval_rst
+.. warning::
+    there is no supported uninstallation process with this
+    method.  If you want that, use the Vagrant environment, where you can
+    just do `vagrant destroy` to clean up the development environment.
+```
 
 Start by [cloning your fork of the Zulip repository][zulip-rtd-git-cloning]
 and [connecting the Zulip upstream repository][zulip-rtd-git-connect]:
@@ -101,12 +104,6 @@ git remote add -f upstream https://github.com/zulip/zulip.git
 doas pkg_add sudo bash gcc postgresql-server redis rabbitmq \
     memcached libmemcached py-Pillow py-cryptography py-cffi
 
-# Get tsearch_extras and build it (using a modified version which
-# aliases int4 on OpenBSD):
-git clone https://github.com/blablacio/tsearch_extras
-cd tsearch_extras
-gmake && sudo gmake install
-
 # Point environment to custom include locations and use newer GCC
 # (needed for Node modules):
 export CFLAGS="-I/usr/local/include -I/usr/local/include/sasl"
@@ -148,7 +145,7 @@ If you want to do it manually, here are the steps:
 
 ```
 sudo virtualenv /srv/zulip-py3-venv -p python3 # Create a python3 virtualenv
-sudo chown -R `whoami`:`whoami` /srv/zulip-py3-venv
+sudo chown -R `whoami`: /srv/zulip-py3-venv
 source /srv/zulip-py3-venv/bin/activate # Activate python3 virtualenv
 pip install --upgrade pip # upgrade pip itself because older versions have known issues
 pip install --no-deps -r requirements/dev.txt # install python packages required for development
@@ -160,9 +157,9 @@ Now run these commands:
 sudo ./scripts/lib/install-node
 yarn install
 sudo mkdir /srv/zulip-emoji-cache
-sudo chown -R `whoami`:`whoami` /srv/zulip-emoji-cache
+sudo chown -R `whoami`: /srv/zulip-emoji-cache
 ./tools/setup/emoji/build_emoji
-./tools/inline-email-css
+./scripts/setup/inline-email-css
 ./tools/setup/build_pygments_data
 ./tools/setup/generate_zulip_bots_static_files.py
 ./scripts/setup/generate_secrets.py --development

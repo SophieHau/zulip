@@ -1,8 +1,4 @@
-var Dict = require('./dict').Dict;
-
-var starred_messages = (function () {
-
-var exports = {};
+const Dict = require('./dict').Dict;
 
 exports.ids = new Dict();
 
@@ -39,7 +35,7 @@ exports.get_starred_msg_ids = function () {
 };
 
 exports.rerender_ui = function () {
-    var count = exports.count();
+    let count = exports.count();
 
     if (!page_params.starred_message_counts) {
         // This essentially hides the count
@@ -49,12 +45,4 @@ exports.rerender_ui = function () {
     top_left_corner.update_starred_count(count);
 };
 
-return exports;
-
-}());
-
-if (typeof module !== 'undefined') {
-    module.exports = starred_messages;
-}
-
-window.starred_messages = starred_messages;
+window.starred_messages = exports;

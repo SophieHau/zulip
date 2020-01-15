@@ -18,7 +18,7 @@ from analytics.models import RealmCount, StreamCount, UserCount
 from zerver.lib.actions import UserMessageLite, bulk_insert_ums, \
     do_change_plan_type, do_change_avatar_fields
 from zerver.lib.avatar_hash import user_avatar_path_from_ids
-from zerver.lib.bulk_create import bulk_create_users
+from zerver.lib.bulk_create import bulk_create_users, bulk_set_users_or_streams_recipient_fields
 from zerver.lib.timestamp import datetime_to_timestamp
 from zerver.lib.export import DATE_FIELDS, \
     Record, TableData, TableName, Field, Path
@@ -500,6 +500,19 @@ def fix_realm_authentication_bitfield(data: TableData, table: TableName, field_n
         values_as_int = int(values_as_bitstring, 2)
         item[field_name] = values_as_int
 
+def remove_denormalized_recipient_column_from_data(data: TableData) -> None:
+    """
+    The recipient column shouldn't be imported, we'll set the correct values
+    when Recipient table gets imported.
+    """
+    for stream_dict in data['zerver_stream']:
+        if "recipient" in stream_dict:
+            del stream_dict["recipient"]
+
+    for user_profile_dict in data['zerver_userprofile']:
+        if 'recipient' in user_profile_dict:
+            del user_profile_dict['recipient']
+
 def get_db_table(model_class: Any) -> str:
     """E.g. (RealmDomain -> 'zerver_realmdomain')"""
     return model_class._meta.db_table
@@ -748,6 +761,7 @@ def do_import_realm(import_dir: Path, subdomain: str, processes: int=1) -> Realm
     logging.info("Importing realm data from %s" % (realm_data_filename,))
     with open(realm_data_filename) as f:
         data = ujson.load(f)
+    remove_denormalized_recipient_column_from_data(data)
 
     sort_by_date = data.get('sort_by_date', False)
 
@@ -861,6 +875,8 @@ def do_import_realm(import_dir: Path, subdomain: str, processes: int=1) -> Realm
                         recipient_field=True, id_field=True)
     update_model_ids(Recipient, data, 'recipient')
     bulk_import_model(data, Recipient)
+    bulk_set_users_or_streams_recipient_fields(Stream, Stream.objects.filter(realm=realm))
+    bulk_set_users_or_streams_recipient_fields(UserProfile, UserProfile.objects.filter(realm=realm))
 
     re_map_foreign_keys(data, 'zerver_subscription', 'user_profile', related_table="user_profile")
     get_huddles_from_subscription(data, 'zerver_subscription')
@@ -1091,7 +1107,7 @@ def get_incoming_message_ids(import_dir: Path,
     ids, which can be millions of integers for some installations.
     And then we sort the list.  This is necessary to ensure
     that the sort order of incoming ids matches the sort order
-    of pub_date, which isn't always guaranteed by our
+    of date_sent, which isn't always guaranteed by our
     utilities that convert third party chat data.  We also
     need to move our ids to a new range if we're dealing
     with a server that has data for other realms.
@@ -1115,7 +1131,7 @@ def get_incoming_message_ids(import_dir: Path,
         del data['zerver_usermessage']
 
         for row in data['zerver_message']:
-            # We truncate pub_date to int to theoretically
+            # We truncate date_sent to int to theoretically
             # save memory and speed up the sort.  For
             # Zulip-to-Zulip imports, the
             # message_id will generally be a good tiebreaker.
@@ -1128,8 +1144,8 @@ def get_incoming_message_ids(import_dir: Path,
             message_id = row['id']
 
             if sort_by_date:
-                pub_date = int(row['pub_date'])
-                tup = (pub_date, message_id)
+                date_sent = int(row['date_sent'])
+                tup = (date_sent, message_id)
                 tups.append(tup)
             else:
                 message_ids.append(message_id)

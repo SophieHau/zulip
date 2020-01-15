@@ -25,8 +25,6 @@ set_global('document', {
     },
 });
 
-global.patch_builtin('window', {});
-
 set_global('csrf_token', 'whatever');
 
 set_global('$', () => {});
@@ -94,17 +92,19 @@ zrequire('user_groups');
 zrequire('unread');
 zrequire('bot_data');
 zrequire('message_fetch');
-zrequire('marked', 'third/marked/lib/marked');
+set_global('marked', zrequire('marked', 'third/marked/lib/marked'));
 zrequire('fenced_code');
 zrequire('markdown');
 zrequire('upload');
 zrequire('compose');
 zrequire('composebox_typeahead');
 zrequire('narrow');
+zrequire('search_suggestion');
 zrequire('search');
 zrequire('tutorial');
 zrequire('notifications');
 zrequire('pointer');
+zrequire('pm_conversations');
 zrequire('compose_fade');
 zrequire('pm_list');
 zrequire('list_cursor');
@@ -119,7 +119,8 @@ zrequire('top_left_corner');
 zrequire('starred_messages');
 zrequire('user_status');
 zrequire('user_status_ui');
-zrequire('ui_init');
+const ui_init = zrequire('ui_init');
+
 zrequire('settings_display');
 
 set_global('$', global.make_zjquery());
@@ -130,7 +131,7 @@ document_stub.on = () => {};
 document_stub.idle = () => {};
 
 const window_stub = $.create('window-stub');
-window.to_$ = () => window_stub;
+set_global('to_$', () => window_stub);
 window_stub.idle = () => {};
 
 ui_init.initialize_kitchen_sink_stuff = () => {};
@@ -141,6 +142,7 @@ page_params.unsubscribed = [];
 page_params.never_subscribed = [];
 page_params.realm_notifications_stream_id = -1;
 page_params.unread_msgs = {};
+page_params.recent_private_conversations = [];
 
 $('#tab_bar').append = () => {};
 $('#compose').filedrop = () => {};

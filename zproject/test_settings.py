@@ -18,6 +18,8 @@ if os.getenv("EXTERNAL_HOST") is None:
     os.environ["EXTERNAL_HOST"] = "testserver"
 from .settings import *
 
+FAKE_EMAIL_DOMAIN = "zulip.testserver"
+
 # Clear out the REALM_HOSTS set in dev_settings.py
 REALM_HOSTS = {}
 
@@ -49,6 +51,9 @@ if "CASPER_TESTS" in os.environ:
     # Disable search pills prototype for production use
     SEARCH_PILLS_ENABLED = False
 
+if "RUNNING_OPENAPI_CURL_TEST" in os.environ:
+    RUNNING_OPENAPI_CURL_TEST = True
+
 # Decrease the get_updates timeout to 1 second.
 # This allows CasperJS to proceed quickly to the next test step.
 POLL_TIMEOUT = 1000
@@ -67,6 +72,12 @@ GOOGLE_OAUTH2_CLIENT_ID = "test_client_id"
 
 # Makes testing LDAP backend require less mocking
 AUTH_LDAP_ALWAYS_UPDATE_USER = False
+AUTH_LDAP_USER_SEARCH = LDAPSearch("ou=users,dc=zulip,dc=com",
+                                   ldap.SCOPE_ONELEVEL, "(uid=%(user)s)")
+AUTH_LDAP_USERNAME_ATTR = "uid"
+AUTH_LDAP_REVERSE_EMAIL_SEARCH = LDAPSearch("ou=users,dc=zulip,dc=com",
+                                            ldap.SCOPE_ONELEVEL,
+                                            "(mail=%(email)s)")
 
 TEST_SUITE = True
 RATE_LIMITING = False
@@ -108,11 +119,12 @@ if not CASPER_TESTS:
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'
     }
 
-    def set_loglevel(logger_name, level) -> None:
+    def set_loglevel(logger_name: str, level: str) -> None:
         LOGGING['loggers'].setdefault(logger_name, {})['level'] = level
     set_loglevel('zulip.requests', 'CRITICAL')
     set_loglevel('zulip.management', 'CRITICAL')
     set_loglevel('django.request', 'ERROR')
+    set_loglevel('django_auth_ldap', 'WARNING')
     set_loglevel('fakeldap', 'ERROR')
     set_loglevel('zulip.send_email', 'ERROR')
     set_loglevel('zerver.lib.push_notifications', 'WARNING')
@@ -130,8 +142,7 @@ TEST_WORKER_DIR = ''
 # Casper/API tests in test_server.py can control this.
 if "LOCAL_UPLOADS_DIR" in os.environ:
     LOCAL_UPLOADS_DIR = os.getenv("LOCAL_UPLOADS_DIR")
-else:
-    LOCAL_UPLOADS_DIR = ''
+# Otherwise, we use the default value from dev_settings.py
 
 S3_KEY = 'test-key'
 S3_SECRET_KEY = 'test-secret-key'
@@ -171,3 +182,39 @@ THUMBOR_SERVES_CAMO = True
 # Logging the emails while running the tests adds them
 # to /emails page.
 DEVELOPMENT_LOG_EMAILS = False
+
+SOCIAL_AUTH_SAML_SP_ENTITY_ID = 'http://' + EXTERNAL_HOST
+SOCIAL_AUTH_SAML_SP_PUBLIC_CERT  = get_from_file_if_exists("zerver/tests/fixtures/saml/zulip.crt")
+SOCIAL_AUTH_SAML_SP_PRIVATE_KEY = get_from_file_if_exists("zerver/tests/fixtures/saml/zulip.key")
+
+SOCIAL_AUTH_SAML_ORG_INFO = {
+    "en-US": {
+        "name": "example",
+        "displayname": "Example Inc.",
+        "url": "%s%s" % ('http://', EXTERNAL_HOST),
+    }
+}
+
+SOCIAL_AUTH_SAML_TECHNICAL_CONTACT = {
+    "givenName": "Tech Gal",
+    "emailAddress": "technical@example.com"
+}
+
+SOCIAL_AUTH_SAML_SUPPORT_CONTACT = {
+    "givenName": "Support Guy",
+    "emailAddress": "support@example.com",
+}
+
+SOCIAL_AUTH_SAML_ENABLED_IDPS = {
+    "test_idp": {
+        "entity_id": "https://idp.testshib.org/idp/shibboleth",
+        "url": "https://idp.testshib.org/idp/profile/SAML2/Redirect/SSO",
+        "x509cert": get_from_file_if_exists("zerver/tests/fixtures/saml/idp.crt"),
+        "attr_user_permanent_id": "email",
+        "attr_first_name": "first_name",
+        "attr_last_name": "last_name",
+        "attr_username": "email",
+        "attr_email": "email",
+        "display_name": "Test IdP",
+    }
+}

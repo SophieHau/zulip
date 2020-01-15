@@ -1,25 +1,22 @@
-var echo = (function () {
 // Docs: https://zulip.readthedocs.io/en/latest/subsystems/sending-messages.html
 
-var exports = {};
-
-var waiting_for_id = {};
-var waiting_for_ack = {};
+const waiting_for_id = {};
+let waiting_for_ack = {};
 
 function resend_message(message, row) {
     message.content = message.raw_content;
-    var retry_spinner = row.find('.refresh-failed-message');
+    const retry_spinner = row.find('.refresh-failed-message');
     retry_spinner.toggleClass('rotating', true);
 
     // Always re-set queue_id if we've gotten a new one
     // since the time when the message object was initially created
     message.queue_id = page_params.queue_id;
 
-    var local_id = message.local_id;
+    const local_id = message.local_id;
 
     function on_success(data) {
-        var message_id = data.id;
-        var locally_echoed = true;
+        const message_id = data.id;
+        const locally_echoed = true;
 
         retry_spinner.toggleClass('rotating', false);
 
@@ -46,7 +43,7 @@ function insert_local_message(message_request, local_id) {
     // Shallow clone of message request object that is turned into something suitable
     // for zulip.js:add_message
     // Keep this in sync with changes to compose.create_message_object
-    var message = $.extend({}, message_request);
+    const message = $.extend({}, message_request);
 
     // Locally delivered messages cannot be unread (since we sent them), nor
     // can they alert the user.
@@ -77,10 +74,10 @@ function insert_local_message(message_request, local_id) {
         // recipient.  Note that it's important that use
         // util.extract_pm_recipients, which filters out any spurious
         // ", " at the end of the recipient list
-        var emails = util.extract_pm_recipients(message_request.private_message_recipient);
+        const emails = util.extract_pm_recipients(message_request.private_message_recipient);
         message.display_recipient = _.map(emails, function (email) {
             email = email.trim();
-            var person = people.get_by_email(email);
+            const person = people.get_by_email(email);
             if (person === undefined) {
                 // For unknown users, we return a skeleton object.
                 return {
@@ -106,7 +103,7 @@ function insert_local_message(message_request, local_id) {
 
     local_message.insert_message(message);
 
-    return message.local_id;
+    return message.local_id.toString();
 }
 
 exports.is_slash_command = function (content) {
@@ -127,7 +124,7 @@ exports.try_deliver_locally = function try_deliver_locally(message_request) {
         return;
     }
 
-    var next_local_id = local_message.get_next_id();
+    const next_local_id = local_message.get_next_id();
 
     if (!next_local_id) {
         // This can happen for legit reasons.
@@ -137,10 +134,20 @@ exports.try_deliver_locally = function try_deliver_locally(message_request) {
     return insert_local_message(message_request, next_local_id);
 };
 
-exports.edit_locally = function edit_locally(message, raw_content, new_topic) {
-    var message_content_edited = raw_content !== undefined && message.raw_content !== raw_content;
+exports.edit_locally = function edit_locally(message, request) {
+    // Responsible for doing the rendering work of locally editing the
+    // content ofa message.  This is used in several code paths:
+    // * Editing a message where a message was locally echoed but
+    //   it got an error back from the server
+    // * Locally echoing any content-only edits to fully sent messages
+    // * Restoring the original content should the server return an
+    //   error after having locally echoed content-only messages.
+    // The details of what should be changed are encoded in the request.
+    const raw_content = request.raw_content;
+    const message_content_edited = raw_content !== undefined && message.raw_content !== raw_content;
 
-    if (new_topic !== undefined) {
+    if (request.new_topic !== undefined) {
+        const new_topic = request.new_topic;
         topic_data.remove_message({
             stream_id: message.stream_id,
             topic_name: util.get_message_topic(message),
@@ -157,10 +164,37 @@ exports.edit_locally = function edit_locally(message, raw_content, new_topic) {
 
     if (message_content_edited) {
         message.raw_content = raw_content;
-        markdown.apply_markdown(message);
+        if (request.content !== undefined) {
+            // This happens in the code path where message editing
+            // failed and we're trying to undo the local echo.  We use
+            // the saved content and flags rather than rendering; this
+            // is important in case
+            // markdown.contains_backend_only_syntax(message) is true.
+            message.content = request.content;
+            message.mentioned = request.mentioned;
+            message.mentioned_me_directly = request.mentioned_me_directly;
+            message.alerted = request.alerted;
+        } else {
+            // Otherwise, we markdown-render the message; this resets
+            // all flags, so we need to restore those flags that are
+            // properties of how the user has interacted with the
+            // message, and not its rendering.
+            markdown.apply_markdown(message);
+            if (request.starred !== undefined) {
+                message.starred = request.starred;
+            }
+            if (request.historical !== undefined) {
+                message.historical = request.historical;
+            }
+            if (request.collapsed !== undefined) {
+                message.collapsed = request.collapsed;
+            }
+        }
     }
 
-    // We don't handle unread counts since local messages must be sent by us
+    // We don't have logic to adjust unread counts, because message
+    // reaching this code path must either have been sent by us or the
+    // topic isn't being edited, so unread counts can't have changed.
 
     home_msg_list.view.rerender_messages([message]);
     if (current_msg_list === message_list.narrowed) {
@@ -171,7 +205,7 @@ exports.edit_locally = function edit_locally(message, raw_content, new_topic) {
 };
 
 exports.reify_message_id = function reify_message_id(local_id, server_id) {
-    var message = waiting_for_id[local_id];
+    const message = waiting_for_id[local_id];
     delete waiting_for_id[local_id];
 
     // reify_message_id is called both on receiving a self-sent message
@@ -184,20 +218,20 @@ exports.reify_message_id = function reify_message_id(local_id, server_id) {
     message.id = server_id;
     message.locally_echoed = false;
 
-    var opts = {old_id: local_id, new_id: server_id};
+    const opts = {old_id: parseFloat(local_id), new_id: server_id};
 
     message_store.reify_message_id(opts);
     notifications.reify_message_id(opts);
 };
 
 exports.process_from_server = function process_from_server(messages) {
-    var msgs_to_rerender = [];
-    var non_echo_messages = [];
+    const msgs_to_rerender = [];
+    const non_echo_messages = [];
 
     _.each(messages, function (message) {
         // In case we get the sent message before we get the send ACK, reify here
 
-        var client_message = waiting_for_ack[message.local_id];
+        const client_message = waiting_for_ack[message.local_id];
         if (client_message === undefined) {
             // For messages that weren't locally echoed, we go through
             // the "main" codepath that doesn't have to id reconciliation.
@@ -273,11 +307,11 @@ exports.initialize = function () {
         $("#main_div").on("click", "." + action + "-failed-message", function (e) {
             e.stopPropagation();
             popovers.hide_all();
-            var row = $(this).closest(".message_row");
-            var message_id = rows.id(row);
+            const row = $(this).closest(".message_row");
+            const message_id = rows.id(row);
             // Message should be waiting for ack and only have a local id,
             // otherwise send would not have failed
-            var message = waiting_for_ack[message_id];
+            const message = waiting_for_ack[message_id];
             if (message === undefined) {
                 blueslip.warn("Got resend or retry on failure request but did not find message in ack list " + message_id);
                 return;
@@ -290,10 +324,4 @@ exports.initialize = function () {
     on_failed_action('refresh', resend_message);
 };
 
-return exports;
-
-}());
-if (typeof module !== 'undefined') {
-    module.exports = echo;
-}
-window.echo = echo;
+window.echo = exports;

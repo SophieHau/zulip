@@ -2,7 +2,7 @@
 # high-level documentation on how this system works.
 from typing import cast, AbstractSet, Any, Callable, Dict, List, \
     Mapping, MutableMapping, Optional, Iterable, Sequence, Set, Union
-from mypy_extensions import TypedDict
+from typing_extensions import Deque, TypedDict
 
 from django.utils.translation import ugettext as _
 from django.conf import settings
@@ -15,7 +15,6 @@ import requests
 import atexit
 import sys
 import signal
-import tornado.autoreload
 import tornado.ioloop
 import random
 from zerver.models import UserProfile, Client, Realm
@@ -32,6 +31,7 @@ from zerver.tornado.descriptors import clear_descriptor_by_handler_id, set_descr
 from zerver.tornado.exceptions import BadEventQueueIdError
 from zerver.tornado.sharding import get_tornado_uri, get_tornado_port, \
     notify_tornado_queue_name
+from zerver.tornado.autoreload import add_reload_hook
 import copy
 
 requests_client = requests.Session()
@@ -63,7 +63,6 @@ HEARTBEAT_MIN_FREQ_SECS = 45
 class ClientDescriptor:
     def __init__(self,
                  user_profile_id: int,
-                 user_profile_email: str,
                  realm_id: int, event_queue: 'EventQueue',
                  event_types: Optional[Sequence[str]],
                  client_type_name: str,
@@ -77,7 +76,6 @@ class ClientDescriptor:
         # added to load_event_queues() to update the restored objects.
         # Additionally, the to_dict and from_dict methods must be updated
         self.user_profile_id = user_profile_id
-        self.user_profile_email = user_profile_email
         self.realm_id = realm_id
         self.current_handler_id = None  # type: Optional[int]
         self.current_client_name = None  # type: Optional[str]
@@ -103,7 +101,6 @@ class ClientDescriptor:
         # migration code in from_dict or load_event_queues to account for
         # loading event queues that lack that key.
         return dict(user_profile_id=self.user_profile_id,
-                    user_profile_email=self.user_profile_email,
                     realm_id=self.realm_id,
                     event_queue=self.event_queue.to_dict(),
                     queue_timeout=self.queue_timeout,
@@ -120,10 +117,6 @@ class ClientDescriptor:
 
     @classmethod
     def from_dict(cls, d: MutableMapping[str, Any]) -> 'ClientDescriptor':
-        if 'user_profile_email' not in d:
-            # Temporary migration for the addition of the new user_profile_email field
-            from zerver.models import get_user_profile_by_id
-            d['user_profile_email'] = get_user_profile_by_id(d['user_profile_id']).email
         if 'client_type' in d:
             # Temporary migration for the rename of client_type to client_type_name
             d['client_type_name'] = d['client_type']
@@ -133,7 +126,6 @@ class ClientDescriptor:
 
         ret = cls(
             d['user_profile_id'],
-            d['user_profile_email'],
             d['realm_id'],
             EventQueue.from_dict(d['event_queue']),
             d['event_types'],
@@ -152,6 +144,11 @@ class ClientDescriptor:
         self._timeout_handle = None
 
     def add_event(self, event: Dict[str, Any]) -> None:
+        # Any dictionary passed into this function must be a unique
+        # dictionary (potentially a shallow copy of a shared data
+        # structure), since the event_queue data structures will
+        # mutate it to add the queue-specific unique `id` of that
+        # event to the outer event dictionary.
         if self.current_handler_id is not None:
             handler = get_handler_by_id(self.current_handler_id)
             async_request_timer_restart(handler._request)
@@ -208,7 +205,7 @@ class ClientDescriptor:
             clear_handler_by_id(self.current_handler_id)
             if client_closed:
                 logging.info("Client disconnected for queue %s (%s via %s)" %
-                             (self.event_queue.id, self.user_profile_email,
+                             (self.event_queue.id, self.user_profile_id,
                               self.current_client_name))
         self.current_handler_id = None
         self.current_client_name = None
@@ -238,9 +235,12 @@ def compute_full_event_type(event: Mapping[str, Any]) -> str:
 
 class EventQueue:
     def __init__(self, id: str) -> None:
-        self.queue = deque()  # type: ignore # Should be Deque[Dict[str, Any]], but Deque isn't available in Python 3.4
+        # When extending this list of properties, one must be sure to
+        # update to_dict and from_dict.
+
+        self.queue = deque()  # type: Deque[Dict[str, Any]]
         self.next_event_id = 0  # type: int
-        self.newest_pruned_id = -1  # type: int
+        self.newest_pruned_id = -1  # type: Optional[int] # will only be None for migration from old versions
         self.id = id  # type: str
         self.virtual_events = {}  # type: Dict[str, Dict[str, Any]]
 
@@ -248,15 +248,21 @@ class EventQueue:
         # If you add a new key to this dict, make sure you add appropriate
         # migration code in from_dict or load_event_queues to account for
         # loading event queues that lack that key.
-        return dict(id=self.id,
-                    next_event_id=self.next_event_id,
-                    queue=list(self.queue),
-                    virtual_events=self.virtual_events)
+        d = dict(
+            id=self.id,
+            next_event_id=self.next_event_id,
+            queue=list(self.queue),
+            virtual_events=self.virtual_events,
+        )
+        if self.newest_pruned_id is not None:
+            d['newest_pruned_id'] = self.newest_pruned_id
+        return d
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> 'EventQueue':
         ret = cls(d['id'])
         ret.next_event_id = d['next_event_id']
+        ret.newest_pruned_id = d.get('newest_pruned_id', None)
         ret.queue = deque(d['queue'])
         ret.virtual_events = d.get("virtual_events", {})
         return ret
@@ -481,7 +487,7 @@ def setup_event_queue(port: int) -> None:
         atexit.register(dump_event_queues, port)
         # Make sure we dump event queues even if we exit via signal
         signal.signal(signal.SIGTERM, lambda signum, stack: sys.exit(1))
-        tornado.autoreload.add_reload_hook(lambda: dump_event_queues(port))
+        add_reload_hook(lambda: dump_event_queues(port))
 
     try:
         os.rename(persistent_queue_filename(port), persistent_queue_filename(port, last=True))
@@ -502,7 +508,6 @@ def fetch_events(query: Mapping[str, Any]) -> Dict[str, Any]:
     last_event_id = query["last_event_id"]  # type: int
     user_profile_id = query["user_profile_id"]  # type: int
     new_queue_data = query.get("new_queue_data")  # type: Optional[MutableMapping[str, Any]]
-    user_profile_email = query["user_profile_email"]  # type: str
     client_type_name = query["client_type_name"]  # type: str
     handler_id = query["handler_id"]  # type: int
 
@@ -524,10 +529,16 @@ def fetch_events(query: Mapping[str, Any]) -> Dict[str, Any]:
                 raise BadEventQueueIdError(queue_id)
             if user_profile_id != client.user_profile_id:
                 raise JsonableError(_("You are not authorized to get events from this queue"))
-            if last_event_id < client.event_queue.newest_pruned_id:
+            if (
+                client.event_queue.newest_pruned_id is not None
+                and last_event_id < client.event_queue.newest_pruned_id
+            ):
                 raise JsonableError(_("An event newer than %s has already been pruned!") % (last_event_id,))
             client.event_queue.prune(last_event_id)
-            if last_event_id != client.event_queue.newest_pruned_id:
+            if (
+                client.event_queue.newest_pruned_id is not None
+                and last_event_id != client.event_queue.newest_pruned_id
+            ):
                 raise JsonableError(_("Event %s was not in this queue") % (last_event_id,))
             was_connected = client.finish_current_handler()
 
@@ -548,7 +559,7 @@ def fetch_events(query: Mapping[str, Any]) -> Dict[str, Any]:
         # After this point, dont_block=False, the queue is empty, and we
         # have a pre-existing queue, so we wait for new events.
         if was_connected:
-            logging.info("Disconnected handler for queue %s (%s/%s)" % (queue_id, user_profile_email,
+            logging.info("Disconnected handler for queue %s (%s/%s)" % (queue_id, user_profile_id,
                                                                         client_type_name))
     except JsonableError as e:
         return dict(type="error", exception=e)
@@ -557,15 +568,6 @@ def fetch_events(query: Mapping[str, Any]) -> Dict[str, Any]:
     return dict(type="async")
 
 # The following functions are called from Django
-
-# Workaround to support the Python-requests 1.0 transition of .json
-# from a property to a function
-requests_json_is_function = callable(requests.Response.json)
-def extract_json_response(resp: requests.Response) -> Dict[str, Any]:
-    if requests_json_is_function:
-        return resp.json()
-    else:
-        return resp.json  # type: ignore # mypy trusts the stub, not the runtime type checking of this fn
 
 def request_event_queue(user_profile: UserProfile, user_client: Client, apply_markdown: bool,
                         client_gravatar: bool, queue_lifespan_secs: int,
@@ -600,11 +602,11 @@ def request_event_queue(user_profile: UserProfile, user_client: Client, apply_ma
 
         resp.raise_for_status()
 
-        return extract_json_response(resp)['queue_id']
+        return resp.json()['queue_id']
 
     return None
 
-def get_user_events(user_profile: UserProfile, queue_id: str, last_event_id: int) -> List[Dict[Any, Any]]:
+def get_user_events(user_profile: UserProfile, queue_id: str, last_event_id: int) -> List[Dict[str, Any]]:
     if settings.TORNADO_SERVER:
         tornado_uri = get_tornado_uri(user_profile.realm)
         post_data = {
@@ -619,7 +621,7 @@ def get_user_events(user_profile: UserProfile, queue_id: str, last_event_id: int
                                     data=post_data)
         resp.raise_for_status()
 
-        return extract_json_response(resp)['events']
+        return resp.json()['events']
     return []
 
 # Send email notifications to idle users
@@ -669,6 +671,8 @@ def missedmessage_hook(user_profile_id: int, client: ClientDescriptor, last_for_
         # stream_push_notify is set in process_message_event.
         stream_push_notify = event.get('stream_push_notify', False)
         stream_email_notify = event.get('stream_email_notify', False)
+        wildcard_mention_notify = (event.get('wildcard_mention_notify', False) and
+                                   'read' not in flags and 'wildcard_mentioned' in flags)
 
         stream_name = None
         if not private_message:
@@ -686,7 +690,8 @@ def missedmessage_hook(user_profile_id: int, client: ClientDescriptor, last_for_
             email_notified = event.get("email_notified", False),
         )
         maybe_enqueue_notifications(user_profile_id, message_id, private_message, mentioned,
-                                    stream_push_notify, stream_email_notify, stream_name,
+                                    wildcard_mention_notify, stream_push_notify,
+                                    stream_email_notify, stream_name,
                                     always_push_notify, idle, already_notified)
 
 def receiver_is_off_zulip(user_profile_id: int) -> bool:
@@ -698,7 +703,9 @@ def receiver_is_off_zulip(user_profile_id: int) -> bool:
     return off_zulip
 
 def maybe_enqueue_notifications(user_profile_id: int, message_id: int, private_message: bool,
-                                mentioned: bool, stream_push_notify: bool,
+                                mentioned: bool,
+                                wildcard_mention_notify: bool,
+                                stream_push_notify: bool,
                                 stream_email_notify: bool, stream_name: Optional[str],
                                 always_push_notify: bool, idle: bool,
                                 already_notified: Dict[str, bool]) -> Dict[str, bool]:
@@ -707,12 +714,15 @@ def maybe_enqueue_notifications(user_profile_id: int, message_id: int, private_m
     more features here."""
     notified = dict()  # type: Dict[str, bool]
 
-    if (idle or always_push_notify) and (private_message or mentioned or stream_push_notify):
+    if (idle or always_push_notify) and (private_message or mentioned or
+                                         wildcard_mention_notify or stream_push_notify):
         notice = build_offline_notification(user_profile_id, message_id)
         if private_message:
             notice['trigger'] = 'private_message'
         elif mentioned:
             notice['trigger'] = 'mentioned'
+        elif wildcard_mention_notify:
+            notice['trigger'] = 'wildcard_mentioned'
         elif stream_push_notify:
             notice['trigger'] = 'stream_push_notify'
         else:
@@ -726,12 +736,14 @@ def maybe_enqueue_notifications(user_profile_id: int, message_id: int, private_m
     # mention.  Eventually, we'll add settings to allow email
     # notifications to match the model of push notifications
     # above.
-    if idle and (private_message or mentioned or stream_email_notify):
+    if idle and (private_message or mentioned or wildcard_mention_notify or stream_email_notify):
         notice = build_offline_notification(user_profile_id, message_id)
         if private_message:
             notice['trigger'] = 'private_message'
         elif mentioned:
             notice['trigger'] = 'mentioned'
+        elif wildcard_mention_notify:
+            notice['trigger'] = 'wildcard_mentioned'
         elif stream_email_notify:
             notice['trigger'] = 'stream_email_notify'
         else:
@@ -809,6 +821,16 @@ def process_message_event(event_template: Mapping[str, Any], users: Iterable[Map
     @cachify
     def get_client_payload(apply_markdown: bool, client_gravatar: bool) -> Dict[str, Any]:
         dct = copy.deepcopy(wide_dict)
+
+        # Temporary transitional code: Zulip servers that have message
+        # events in their event queues and upgrade to the new version
+        # that expects sender_delivery_email in these events will
+        # throw errors processing events.  We can remove this block
+        # once we don't expect anyone to be directly upgrading from
+        # 2.0.x to the latest Zulip.
+        if 'sender_delivery_email' not in dct:  # nocoverage
+            dct['sender_delivery_email'] = dct['sender_email']
+
         MessageDict.finalize_payload(dct, apply_markdown, client_gravatar)
         return dct
 
@@ -825,18 +847,24 @@ def process_message_event(event_template: Mapping[str, Any], users: Iterable[Map
         mentioned = 'mentioned' in flags and 'read' not in flags
         stream_push_notify = user_data.get('stream_push_notify', False)
         stream_email_notify = user_data.get('stream_email_notify', False)
+        wildcard_mention_notify = (user_data.get('wildcard_mention_notify', False) and
+                                   'wildcard_mentioned' in flags and 'read' not in flags)
 
         # We first check if a message is potentially mentionable,
         # since receiver_is_off_zulip is somewhat expensive.
-        if private_message or mentioned or stream_push_notify or stream_email_notify:
+        if (private_message or mentioned or wildcard_mention_notify
+                or stream_push_notify or stream_email_notify):
             idle = receiver_is_off_zulip(user_profile_id) or (user_profile_id in presence_idle_user_ids)
             always_push_notify = user_data.get('always_push_notify', False)
             stream_name = event_template.get('stream_name')
             result = maybe_enqueue_notifications(user_profile_id, message_id, private_message,
-                                                 mentioned, stream_push_notify, stream_email_notify,
+                                                 mentioned,
+                                                 wildcard_mention_notify,
+                                                 stream_push_notify, stream_email_notify,
                                                  stream_name, always_push_notify, idle, {})
             result['stream_push_notify'] = stream_push_notify
             result['stream_email_notify'] = stream_email_notify
+            result['wildcard_mention_notify'] = wildcard_mention_notify
             extra_user_data[user_profile_id] = result
 
     for client_data in send_to_clients.values():
@@ -874,6 +902,9 @@ def process_message_event(event_template: Mapping[str, Any], users: Iterable[Map
         if ('mirror' in sending_client and
                 sending_client.lower() == client.client_type_name.lower()):
             continue
+
+        # We don't need to create a new dict here, since the
+        # `user_event` was already constructed from scratch above.
         client.add_event(user_event)
 
 def process_event(event: Mapping[str, Any], users: Iterable[int]) -> None:
@@ -892,7 +923,9 @@ def process_userdata_event(event_template: Mapping[str, Any], users: Iterable[Ma
 
         for client in get_client_descriptors_for_user(user_profile_id):
             if client.accepts_event(user_event):
-                client.add_event(user_event)
+                # We need to do another shallow copy, or we risk
+                # sending the same event to multiple clients.
+                client.add_event(dict(user_event))
 
 def process_message_update_event(event_template: Mapping[str, Any],
                                  users: Iterable[Mapping[str, Any]]) -> None:
@@ -901,6 +934,7 @@ def process_message_update_event(event_template: Mapping[str, Any],
     presence_idle_user_ids = set(event_template.get('presence_idle_user_ids', []))
     stream_push_user_ids = set(event_template.get('stream_push_user_ids', []))
     stream_email_user_ids = set(event_template.get('stream_email_user_ids', []))
+    wildcard_mention_user_ids = set(event_template.get('wildcard_mention_user_ids', []))
     push_notify_user_ids = set(event_template.get('push_notify_user_ids', []))
 
     stream_name = event_template.get('stream_name')
@@ -912,6 +946,9 @@ def process_message_update_event(event_template: Mapping[str, Any],
         for key in user_data.keys():
             if key != "id":
                 user_event[key] = user_data[key]
+        wildcard_mentioned = 'wildcard_mentioned' in user_event['flags']
+        wildcard_mention_notify = wildcard_mentioned and (
+            user_profile_id in wildcard_mention_user_ids)
 
         maybe_enqueue_notifications_for_message_update(
             user_profile_id=user_profile_id,
@@ -919,6 +956,7 @@ def process_message_update_event(event_template: Mapping[str, Any],
             stream_name=stream_name,
             prior_mention_user_ids=prior_mention_user_ids,
             mention_user_ids=mention_user_ids,
+            wildcard_mention_notify = wildcard_mention_notify,
             presence_idle_user_ids=presence_idle_user_ids,
             stream_push_user_ids=stream_push_user_ids,
             stream_email_user_ids=stream_email_user_ids,
@@ -927,13 +965,16 @@ def process_message_update_event(event_template: Mapping[str, Any],
 
         for client in get_client_descriptors_for_user(user_profile_id):
             if client.accepts_event(user_event):
-                client.add_event(user_event)
+                # We need to do another shallow copy, or we risk
+                # sending the same event to multiple clients.
+                client.add_event(dict(user_event))
 
 def maybe_enqueue_notifications_for_message_update(user_profile_id: UserProfile,
                                                    message_id: int,
                                                    stream_name: str,
                                                    prior_mention_user_ids: Set[int],
                                                    mention_user_ids: Set[int],
+                                                   wildcard_mention_notify: bool,
                                                    presence_idle_user_ids: Set[int],
                                                    stream_push_user_ids: Set[int],
                                                    stream_email_user_ids: Set[int],
@@ -949,6 +990,16 @@ def maybe_enqueue_notifications_for_message_update(user_profile_id: UserProfile,
         # Don't spam people with duplicate mentions.  This is
         # especially important considering that most message
         # edits are simple typo corrections.
+        #
+        # Note that prior_mention_user_ids contains users who received
+        # a wildcard mention as well as normal mentions.
+        #
+        # TODO: Ideally, that would mean that we exclude here cases
+        # where user_profile.wildcard_mentions_notify=False and have
+        # those still send a notification.  However, we don't have the
+        # data to determine whether or not that was the case at the
+        # time the original message was sent, so we can't do that
+        # without extending the UserMessage data model.
         return
 
     stream_push_notify = (user_profile_id in stream_push_user_ids)
@@ -975,6 +1026,7 @@ def maybe_enqueue_notifications_for_message_update(user_profile_id: UserProfile,
         message_id=message_id,
         private_message=private_message,
         mentioned=mentioned,
+        wildcard_mention_notify=wildcard_mention_notify,
         stream_push_notify=stream_push_notify,
         stream_email_notify=stream_email_notify,
         stream_name=stream_name,

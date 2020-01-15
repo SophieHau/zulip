@@ -21,7 +21,7 @@ the main server app, this is [zulip/zulip][github-zulip-zulip].
 Next, clone your fork to your local machine:
 
 ```
-$ git clone --config pull.rebase git@github.com:christi3k/zulip.git
+$ git clone --config pull.rebase https://github.com/YOUR_USERNAME/zulip.git
 Cloning into 'zulip'
 remote: Counting objects: 86768, done.
 remote: Compressing objects: 100% (15/15), done.
@@ -152,6 +152,6 @@ Zulip.
 [travis-ci]: https://travis-ci.org/
 [circle-ci]:https://circleci.com/
 [travis-ci-profile]: https://travis-ci.org/profile
-[zulip-rtd-dev-first-time]: ../development/setup-vagrant.html
-[zulip-rtd-dev-overview]: ../development/overview.html
+[zulip-rtd-dev-first-time]: ../development/setup-vagrant.md
+[zulip-rtd-dev-overview]: ../development/overview.md
 [zulip-rtd-tools-setup]: ../git/zulip-tools.html#set-up-git-repo-script

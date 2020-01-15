@@ -24,14 +24,14 @@ See also [fixing commits][fix-commit]
     - `git fetch origin`
     - `git fetch upstream`
 - grep
-    - `git grep update_unread_counts
+    - `git grep update_unread_counts`
 - log
     - `git log`
 - pull
     - `git pull --rebase`: **Use this**. Zulip uses a [rebase oriented workflow][git-overview].
     - `git pull` (with no options): Will either create a merge commit
       (which you don't want) or do the same thing as `git pull --rebase`,
-      depending on [whether you're configured Git properly][git-clone-config]
+      depending on [whether you've configured Git properly][git-config-clone]
 - push
     - `git push origin +branch-name`
 - rebase
@@ -87,7 +87,7 @@ See also [fixing commits][fix-commit]
     - `git pull --rebase`: rebase your changes on top of master.
     - `git pull` (with no options): Will either create a merge commit
       (which you don't want) or do the same thing as `git pull --rebase`,
-      depending on [whether you're configured Git properly][git-clone-config]
+      depending on [whether you've configured Git properly][git-config-clone]
 - push
     - `git push origin branch-name`: push you commits to the origin repository *only if* there are no conflicts.
       Use this when collaborating with others to prevent overwriting their work.
@@ -111,6 +111,6 @@ See also [fixing commits][fix-commit]
 - status
     - `git status`: show the working tree status, unstaged and staged files
 
-[fix-commit]: fixing-commits.html
+[fix-commit]: fixing-commits.md
 [git-config-clone]: cloning.html#step-1b-clone-to-your-machine
-[git-overview]: overview.html
+[git-overview]: ./overview.md

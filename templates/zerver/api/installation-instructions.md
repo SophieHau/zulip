@@ -37,3 +37,6 @@ npm install zulip-js
 No download required!
 
 {end_tabs}
+
+See also [user-contributed client libraries](/api/client-libraries)
+for many other languages.

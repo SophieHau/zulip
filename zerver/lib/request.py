@@ -1,23 +1,18 @@
-# When adding new functions/classes to this file, you need to also add
-# their types to request.pyi in this directory (a mypy stubs file that
-# we use to ensure mypy does correct type inference with REQ, which it
-# can't do by default due to the dynamic nature of REQ).
-#
-# Because request.pyi exists, the type annotations in this file are
-# mostly not processed by mypy.
 from collections import defaultdict
 from functools import wraps
+from types import FunctionType
 import ujson
 
 from django.utils.translation import ugettext as _
 
 from zerver.lib.exceptions import JsonableError, ErrorCode, \
     InvalidJSONError
-from zerver.lib.types import ViewFuncT
+from zerver.lib.types import Validator, ViewFuncT
 
 from django.http import HttpRequest, HttpResponse
 
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, Generic, List, Optional, Type, TypeVar, Union, cast, overload
+from typing_extensions import Literal
 
 class RequestConfusingParmsError(JsonableError):
     code = ErrorCode.REQUEST_CONFUSING_VAR
@@ -55,7 +50,9 @@ class RequestVariableConversionError(JsonableError):
         return _("Bad value for '{var_name}': {bad_value}")
 
 # Used in conjunction with @has_request_variables, below
-class REQ:
+ResultT = TypeVar('ResultT')
+
+class _REQ(Generic[ResultT]):
     # NotSpecified is a sentinel value for determining whether a
     # default value was specified for a request variable.  We can't
     # use None because that could be a valid, user-specified default
@@ -63,13 +60,21 @@ class REQ:
         pass
     NotSpecified = _NotSpecified()
 
-    def __init__(self, whence: str=None, *, converter: Callable[[Any], Any]=None,
-                 default: Any=NotSpecified, validator: Callable[[Any], Any]=None,
-                 str_validator: Callable[[Any], Any]=None,
-                 argument_type: str=None, type: Type=None,
-                 intentionally_undocumented=False,
-                 documentation_pending=False,
-                 aliases: Optional[List[str]]=None) -> None:
+    def __init__(
+        self,
+        whence: Optional[str] = None,
+        *,
+        type: Type[ResultT] = Type[None],
+        converter: Optional[Callable[[str], ResultT]] = None,
+        default: Union[_NotSpecified, ResultT, None] = NotSpecified,
+        validator: Optional[Validator] = None,
+        str_validator: Optional[Validator] = None,
+        argument_type: Optional[str] = None,
+        intentionally_undocumented: bool=False,
+        documentation_pending: bool=False,
+        aliases: Optional[List[str]] = None,
+        path_only: bool=False
+    ) -> None:
         """whence: the name of the request variable that should be used
         for this parameter.  Defaults to a request variable of the
         same name as the parameter.
@@ -95,10 +100,13 @@ class REQ:
         be inferred in another way (eg. via converter).
 
         aliases: alternate names for the POST var
+
+        path_only: Used for parameters included in the URL that we still want
+        to validate via REQ's hooks.
         """
 
         self.post_var_name = whence
-        self.func_var_name = None  # type: str
+        self.func_var_name = None  # type: Optional[str]
         self.converter = converter
         self.validator = validator
         self.str_validator = str_validator
@@ -107,6 +115,7 @@ class REQ:
         self.aliases = aliases
         self.intentionally_undocumented = intentionally_undocumented
         self.documentation_pending = documentation_pending
+        self.path_only = path_only
 
         if converter and (validator or str_validator):
             # Not user-facing, so shouldn't be tagged for translation
@@ -115,6 +124,119 @@ class REQ:
             # Not user-facing, so shouldn't be tagged for translation
             raise AssertionError('validator and str_validator are mutually exclusive')
 
+# This factory function ensures that mypy can correctly analyze REQ.
+#
+# Note that REQ claims to return a type matching that of the parameter
+# of which it is the default value, allowing type checking of view
+# functions using has_request_variables. In reality, REQ returns an
+# instance of class _REQ to enable the decorator to scan the parameter
+# list for _REQ objects and patch the parameters as the true types.
+
+# Overload 1: converter
+@overload
+def REQ(
+    whence: Optional[str] = ...,
+    *,
+    type: Type[ResultT] = ...,
+    converter: Callable[[str], ResultT],
+    default: ResultT = ...,
+    intentionally_undocumented: bool = ...,
+    documentation_pending: bool = ...,
+    aliases: Optional[List[str]] = ...,
+    path_only: bool = ...
+) -> ResultT:
+    ...
+
+# Overload 2: validator
+@overload
+def REQ(
+    whence: Optional[str] = ...,
+    *,
+    type: Type[ResultT] = ...,
+    default: ResultT = ...,
+    validator: Validator,
+    intentionally_undocumented: bool = ...,
+    documentation_pending: bool = ...,
+    aliases: Optional[List[str]] = ...,
+    path_only: bool = ...
+) -> ResultT:
+    ...
+
+# Overload 3: no converter/validator, default: str or unspecified, argument_type=None
+@overload
+def REQ(
+    whence: Optional[str] = ...,
+    *,
+    type: Type[str] = ...,
+    default: str = ...,
+    str_validator: Optional[Validator] = ...,
+    intentionally_undocumented: bool = ...,
+    documentation_pending: bool = ...,
+    aliases: Optional[List[str]] = ...,
+    path_only: bool = ...
+) -> str:
+    ...
+
+# Overload 4: no converter/validator, default=None, argument_type=None
+@overload
+def REQ(
+    whence: Optional[str] = ...,
+    *,
+    type: Type[str] = ...,
+    default: None,
+    str_validator: Optional[Validator] = ...,
+    intentionally_undocumented: bool = ...,
+    documentation_pending: bool = ...,
+    aliases: Optional[List[str]] = ...,
+    path_only: bool = ...
+) -> Optional[str]:
+    ...
+
+# Overload 5: argument_type="body"
+@overload
+def REQ(
+    whence: Optional[str] = ...,
+    *,
+    type: Type[ResultT] = ...,
+    default: ResultT = ...,
+    str_validator: Optional[Validator] = ...,
+    argument_type: Literal["body"],
+    intentionally_undocumented: bool = ...,
+    documentation_pending: bool = ...,
+    aliases: Optional[List[str]] = ...,
+    path_only: bool = ...
+) -> ResultT:
+    ...
+
+# Implementation
+def REQ(
+    whence: Optional[str] = None,
+    *,
+    type: Type[ResultT] = Type[None],
+    converter: Optional[Callable[[str], ResultT]] = None,
+    default: Union[_REQ._NotSpecified, ResultT] = _REQ.NotSpecified,
+    validator: Optional[Validator] = None,
+    str_validator: Optional[Validator] = None,
+    argument_type: Optional[str] = None,
+    intentionally_undocumented: bool=False,
+    documentation_pending: bool=False,
+    aliases: Optional[List[str]] = None,
+    path_only: bool = False
+) -> ResultT:
+    return cast(ResultT, _REQ(
+        whence,
+        type=type,
+        converter=converter,
+        default=default,
+        validator=validator,
+        str_validator=str_validator,
+        argument_type=argument_type,
+        intentionally_undocumented=intentionally_undocumented,
+        documentation_pending=documentation_pending,
+        aliases=aliases,
+        path_only=path_only,
+    ))
+
 arguments_map = defaultdict(list)  # type: Dict[str, List[str]]
 
 # Extracts variables from the request object and passes them as
@@ -122,7 +244,7 @@ arguments_map = defaultdict(list)  # type: Dict[str, List[str]]
 # argument to the function.
 #
 # To use, assign a function parameter a default value that is an
-# instance of the REQ class.  That parameter will then be automatically
+# instance of the _REQ class.  That parameter will then be automatically
 # populated from the HTTP request.  The request object must be the
 # first argument to the decorated function.
 #
@@ -135,21 +257,18 @@ arguments_map = defaultdict(list)  # type: Dict[str, List[str]]
 # internally when it encounters an error
 def has_request_variables(view_func: ViewFuncT) -> ViewFuncT:
     num_params = view_func.__code__.co_argcount
-    if view_func.__defaults__ is None:
-        num_default_params = 0
-    else:
-        num_default_params = len(view_func.__defaults__)
-    default_param_names = view_func.__code__.co_varnames[num_params - num_default_params:]
-    default_param_values = view_func.__defaults__
+    default_param_values = cast(FunctionType, view_func).__defaults__
     if default_param_values is None:
-        default_param_values = []
+        default_param_values = ()
+    num_default_params = len(default_param_values)
+    default_param_names = view_func.__code__.co_varnames[num_params - num_default_params:]
 
     post_params = []
 
     view_func_full_name = '.'.join([view_func.__module__, view_func.__name__])
 
     for (name, value) in zip(default_param_names, default_param_values):
-        if isinstance(value, REQ):
+        if isinstance(value, _REQ):
             value.func_var_name = name
             if value.post_var_name is None:
                 value.post_var_name = name
@@ -157,21 +276,33 @@ def has_request_variables(view_func: ViewFuncT) -> ViewFuncT:
 
             # Record arguments that should be documented so that our
             # automated OpenAPI docs tests can compare these against the code.
-            if not value.intentionally_undocumented and not value.documentation_pending:
+            if (not value.intentionally_undocumented
+                    and not value.documentation_pending
+                    and not value.path_only):
                 arguments_map[view_func_full_name].append(value.post_var_name)
 
     @wraps(view_func)
     def _wrapped_view_func(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         for param in post_params:
-            if param.func_var_name in kwargs:
+            func_var_name = param.func_var_name
+            if param.path_only:
+                # For path_only parameters, they should already have
+                # been passed via the URL, so there's no need for REQ
+                # to do anything.
+                #
+                # TODO: Either run validators for path_only parameters
+                # or don't declare them using REQ.
+                assert func_var_name in kwargs
+            if func_var_name in kwargs:
                 continue
+            assert func_var_name is not None
 
             if param.argument_type == 'body':
                 try:
                     val = ujson.loads(request.body)
                 except ValueError:
                     raise InvalidJSONError(_("Malformed JSON"))
-                kwargs[param.func_var_name] = val
+                kwargs[func_var_name] = val
                 continue
             elif param.argument_type is not None:
                 # This is a view bug, not a user error, and thus should throw a 500.
@@ -194,12 +325,14 @@ def has_request_variables(view_func: ViewFuncT) -> ViewFuncT:
                 except KeyError:
                     continue
                 if post_var_name is not None:
+                    assert req_var is not None
                     raise RequestConfusingParmsError(post_var_name, req_var)
                 post_var_name = req_var
 
             if post_var_name is None:
                 post_var_name = param.post_var_name
-                if param.default is REQ.NotSpecified:
+                assert post_var_name is not None
+                if param.default is _REQ.NotSpecified:
                     raise RequestVariableMissingError(post_var_name)
                 val = param.default
                 default_assigned = True
@@ -229,8 +362,8 @@ def has_request_variables(view_func: ViewFuncT) -> ViewFuncT:
                 if error:
                     raise JsonableError(error)
 
-            kwargs[param.func_var_name] = val
+            kwargs[func_var_name] = val
 
         return view_func(request, *args, **kwargs)
 
-    return _wrapped_view_func
+    return cast(ViewFuncT, _wrapped_view_func)

@@ -1,9 +1,9 @@
-
 from argparse import ArgumentParser
 from typing import Any
 
 from zerver.lib.actions import do_change_user_delivery_email
 from zerver.lib.management import ZulipBaseCommand
+
 
 class Command(ZulipBaseCommand):
     help = """Change the email address for a user."""

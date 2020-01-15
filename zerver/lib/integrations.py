@@ -1,13 +1,13 @@
 import os
 
-from typing import Dict, List, Optional, Any
-from django.conf import settings
+from typing import Dict, List, Optional, Any, Tuple
 from django.conf.urls import url
 from django.contrib.staticfiles.storage import staticfiles_storage
 from django.urls.resolvers import LocaleRegexProvider
 from django.utils.module_loading import import_string
 from django.utils.translation import ugettext as _
 from zerver.lib.storage import static_path
+from zerver.lib.types import Validator
 
 
 """This module declares all of the (documented) integrations available
@@ -53,12 +53,18 @@ class Integration:
     def __init__(self, name: str, client_name: str, categories: List[str],
                  logo: Optional[str]=None, secondary_line_text: Optional[str]=None,
                  display_name: Optional[str]=None, doc: Optional[str]=None,
-                 stream_name: Optional[str]=None, legacy: Optional[bool]=False) -> None:
+                 stream_name: Optional[str]=None, legacy: Optional[bool]=False,
+                 config_options: List[Tuple[str, str, Validator]]=[]) -> None:
         self.name = name
         self.client_name = client_name
         self.secondary_line_text = secondary_line_text
         self.legacy = legacy
         self.doc = doc
+
+        # Note: Currently only incoming webhook type bots use this list for
+        # defining how the bot's BotConfigData should be. Embedded bots follow
+        # a different approach.
+        self.config_options = config_options
 
         for category in categories:
             if category not in CATEGORIES:
@@ -128,10 +134,6 @@ class BotIntegration(Integration):
             doc = self.DEFAULT_DOC_PATH.format(name=name)
         self.doc = doc
 
-class EmailIntegration(Integration):
-    def is_enabled(self) -> bool:
-        return settings.EMAIL_GATEWAY_PATTERN != ""
-
 class WebhookIntegration(Integration):
     DEFAULT_FUNCTION_PATH = 'zerver.webhooks.{name}.view.api_{name}_webhook'
     DEFAULT_URL = 'api/v1/external/{name}'
@@ -142,7 +144,8 @@ class WebhookIntegration(Integration):
                  logo: Optional[str]=None, secondary_line_text: Optional[str]=None,
                  function: Optional[str]=None, url: Optional[str]=None,
                  display_name: Optional[str]=None, doc: Optional[str]=None,
-                 stream_name: Optional[str]=None, legacy: Optional[bool]=None) -> None:
+                 stream_name: Optional[str]=None, legacy: Optional[bool]=None,
+                 config_options: List[Tuple[str, str, Validator]]=[]) -> None:
         if client_name is None:
             client_name = self.DEFAULT_CLIENT_NAME.format(name=name.title())
         super().__init__(
@@ -153,7 +156,8 @@ class WebhookIntegration(Integration):
             secondary_line_text=secondary_line_text,
             display_name=display_name,
             stream_name=stream_name,
-            legacy=legacy
+            legacy=legacy,
+            config_options=config_options
         )
 
         if function is None:
@@ -269,6 +273,7 @@ WEBHOOK_INTEGRATIONS = [
     WebhookIntegration('flock', ['customer-support'], display_name='Flock'),
     WebhookIntegration('freshdesk', ['customer-support']),
     WebhookIntegration('front', ['customer-support'], display_name='Front'),
+    WebhookIntegration('gitea', ['version-control'], stream_name='commits'),
     WebhookIntegration(
         'github',
         ['version-control'],
@@ -283,6 +288,7 @@ WEBHOOK_INTEGRATIONS = [
     WebhookIntegration('gosquared', ['marketing'], display_name='GoSquared'),
     WebhookIntegration('greenhouse', ['hr'], display_name='Greenhouse'),
     WebhookIntegration('groove', ['customer-support'], display_name='Groove'),
+    WebhookIntegration('harbor', ['deployment', 'productivity'], display_name='Harbor'),
     WebhookIntegration('hellosign', ['productivity', 'hr'], display_name='HelloSign'),
     WebhookIntegration('helloworld', ['misc'], display_name='Hello World'),
     WebhookIntegration('heroku', ['deployment'], display_name='Heroku'),
@@ -354,8 +360,8 @@ INTEGRATIONS = {
                             doc='zerver/integrations/codebase.md'),
     'discourse': Integration('discourse', 'discourse', ['communication'],
                              doc='zerver/integrations/discourse.md'),
-    'email': EmailIntegration('email', 'email', ['communication'],
-                              doc='zerver/integrations/email.md'),
+    'email': Integration('email', 'email', ['communication'],
+                         doc='zerver/integrations/email.md'),
     'errbot': Integration('errbot', 'errbot', ['meta-integration', 'bots'],
                           doc='zerver/integrations/errbot.md'),
     'git': Integration('git', 'git', ['version-control'],

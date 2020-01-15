@@ -31,7 +31,7 @@ The Vagrant setup process runs this for you.
 ## Secrets
 
 Please don't put any passwords, secret access keys, etc. inline in the
-code. Instead, use the `get_secret` function in `zproject/settings.py`
+code. Instead, use the `get_secret` function in `zproject/config.py`
 to read secrets from `/etc/zulip/secrets.conf`.
 
 ## Dangerous constructs
@@ -168,14 +168,14 @@ Don't use it:
 ### Translation tags
 
 Remember to
-[tag all user-facing strings for translation](../translating/translating.html), whether
+[tag all user-facing strings for translation](../translating/translating.md), whether
 they are in HTML templates or JavaScript/TypeScript editing the HTML (e.g. error
 messages).
 
 ### State and logs files
 
-When writing out state of log files, always declare the path in
-`ZULIP_PATHS` in `zproject/settings.py`, which will do the right thing
+When writing out state of log files, always declare the path with
+`zulip_path` in `zproject/settings.py`, which will do the right thing
 in both development and production.
 
 ## JS array/object manipulation
@@ -297,5 +297,5 @@ All significant new features should come with tests. See testing.
 
 ### Third party code
 
-See [our docs on dependencies](../subsystems/dependencies.html) for discussion of
+See [our docs on dependencies](../subsystems/dependencies.md) for discussion of
 rules about integrating third-party projects.

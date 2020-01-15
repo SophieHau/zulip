@@ -1,40 +1,27 @@
-
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Dict, List, Mapping, Optional, Type
 
+import mock
 from django.core.management.base import BaseCommand
 from django.utils.timezone import now as timezone_now
 
-from analytics.lib.counts import COUNT_STATS, \
-    CountStat, do_drop_all_analytics_tables
+from analytics.lib.counts import COUNT_STATS, CountStat, \
+    do_drop_all_analytics_tables
 from analytics.lib.fixtures import generate_time_series_data
 from analytics.lib.time_utils import time_range
-from analytics.models import BaseCount, FillState, RealmCount, UserCount, \
-    StreamCount, InstallationCount
-from zerver.lib.actions import do_change_is_admin, STREAM_ASSIGNMENT_COLORS
+from analytics.models import BaseCount, FillState, InstallationCount, \
+    RealmCount, StreamCount, UserCount
+from zerver.lib.actions import STREAM_ASSIGNMENT_COLORS, do_change_is_admin
+from zerver.lib.create_user import create_user
 from zerver.lib.timestamp import floor_to_day
-from zerver.models import Realm, UserProfile, Stream, Client, \
-    RealmAuditLog, Recipient, Subscription
+from zerver.models import Client, Realm, Recipient, Stream, Subscription
+
 
 class Command(BaseCommand):
     help = """Populates analytics tables with randomly generated data."""
 
     DAYS_OF_DATA = 100
     random_seed = 26
-
-    def create_user(self, email: str,
-                    full_name: str,
-                    is_staff: bool,
-                    date_joined: datetime,
-                    realm: Realm) -> UserProfile:
-        user = UserProfile.objects.create(
-            delivery_email=email, email=email, full_name=full_name, is_staff=is_staff,
-            realm=realm, short_name=full_name, pointer=-1, last_pointer_updater='none',
-            api_key='42', date_joined=date_joined)
-        RealmAuditLog.objects.create(
-            realm=realm, modified_user=user, event_type=RealmAuditLog.USER_CREATED,
-            event_time=user.date_joined)
-        return user
 
     def generate_fixture_data(self, stat: CountStat, business_hours_base: float,
                               non_business_hours_base: float, growth: float,
@@ -68,11 +55,16 @@ class Command(BaseCommand):
         last_end_time = floor_to_day(timezone_now())
         realm = Realm.objects.create(
             string_id='analytics', name='Analytics', date_created=installation_time)
-        shylock = self.create_user('shylock@analytics.ds', 'Shylock', True, installation_time, realm)
+        with mock.patch("zerver.lib.create_user.timezone_now", return_value=installation_time):
+            shylock = create_user('shylock@analytics.ds', 'Shylock', realm,
+                                  full_name='Shylock', short_name='shylock',
+                                  is_realm_admin=True)
         do_change_is_admin(shylock, True)
         stream = Stream.objects.create(
             name='all', realm=realm, date_created=installation_time)
         recipient = Recipient.objects.create(type_id=stream.id, type=Recipient.STREAM)
+        stream.recipient = recipient
+        stream.save(update_fields=["recipient"])
 
         # Subscribe shylock to the stream to avoid invariant failures.
         # TODO: This should use subscribe_users_to_streams from populate_db.

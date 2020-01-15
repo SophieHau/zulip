@@ -3,6 +3,7 @@ from typing import Any
 
 from zerver.lib.management import ZulipBaseCommand
 
+
 class Command(ZulipBaseCommand):
     help = """Show the admins in a realm."""
 
@@ -17,7 +18,7 @@ class Command(ZulipBaseCommand):
         if users:
             print('Admins:\n')
             for user in users:
-                print('  %s (%s)' % (user.email, user.full_name))
+                print('  %s (%s)' % (user.delivery_email, user.full_name))
         else:
             print('There are no admins for this realm!')
 

@@ -1,12 +1,10 @@
 set_global('$', global.make_zjquery());
 const window_stub = $.create('window-stub');
-global.patch_builtin('window', {
-    location: {
-        protocol: 'http:',
-        host: 'example.com',
-    },
-    to_$: () => window_stub,
+set_global('location', {
+    protocol: 'http:',
+    host: 'example.com',
 });
+set_global('to_$', () => window_stub);
 zrequire('people');
 zrequire('hash_util');
 zrequire('hashchange');
@@ -29,9 +27,9 @@ set_global('ui_util', {});
 set_global('blueslip', global.make_zblueslip());
 
 run_test('operators_round_trip', () => {
-    var operators;
-    var hash;
-    var narrow;
+    let operators;
+    let hash;
+    let narrow;
 
     operators = [
         {operator: 'stream', operand: 'devel'},
@@ -60,7 +58,7 @@ run_test('operators_round_trip', () => {
     ]);
 
     // test new encodings, where we have a stream id
-    var florida_stream = {
+    const florida_stream = {
         name: 'Florida, USA',
         stream_id: 987,
     };
@@ -77,11 +75,8 @@ run_test('operators_round_trip', () => {
 });
 
 run_test('operators_trailing_slash', () => {
-    var hash;
-    var narrow;
-
-    hash = '#narrow/stream/devel/topic/algol/';
-    narrow = hash_util.parse_narrow(hash.split('/'));
+    const hash = '#narrow/stream/devel/topic/algol/';
+    const narrow = hash_util.parse_narrow(hash.split('/'));
     assert.deepEqual(narrow, [
         {operator: 'stream', operand: 'devel', negated: false},
         {operator: 'topic', operand: 'algol', negated: false},
@@ -89,11 +84,10 @@ run_test('operators_trailing_slash', () => {
 });
 
 run_test('people_slugs', () => {
-    var operators;
-    var hash;
-    var narrow;
+    let operators;
+    let hash;
 
-    var alice = {
+    const alice = {
         email: 'alice@example.com',
         user_id: 42,
         full_name: 'Alice Smith',
@@ -105,7 +99,7 @@ run_test('people_slugs', () => {
     ];
     hash = hash_util.operators_to_hash(operators);
     assert.equal(hash, '#narrow/sender/42-alice');
-    narrow = hash_util.parse_narrow(hash.split('/'));
+    const narrow = hash_util.parse_narrow(hash.split('/'));
     assert.deepEqual(narrow, [
         {operator: 'sender', operand: 'alice@example.com', negated: false},
     ]);
@@ -118,8 +112,8 @@ run_test('people_slugs', () => {
 });
 
 function test_helper() {
-    var events = [];
-    var narrow_terms;
+    let events = [];
+    let narrow_terms;
 
     function stub(module_name, func_name) {
         global[module_name][func_name] = () => {
@@ -165,7 +159,7 @@ function test_helper() {
 }
 
 run_test('hash_interactions', () => {
-    var helper = test_helper();
+    const helper = test_helper();
 
     window.location.hash = '#';
 
@@ -200,7 +194,7 @@ run_test('hash_interactions', () => {
         'narrow.activate',
         'floating_recipient_bar.update',
     ]);
-    var terms = helper.get_narrow_terms();
+    let terms = helper.get_narrow_terms();
     assert.equal(terms[0].operand, 'Denmark');
 
     window.location.hash = '#narrow';
@@ -283,7 +277,7 @@ run_test('hash_interactions', () => {
         'admin.launch',
     ]);
 
-    var called_back;
+    let called_back;
 
     helper.clear_events();
     hashchange.exit_overlay(() => {
@@ -298,9 +292,9 @@ run_test('hash_interactions', () => {
 });
 
 run_test('save_narrow', () => {
-    var helper = test_helper();
+    const helper = test_helper();
 
-    var operators = [
+    let operators = [
         {operator: 'is', operand: 'private'},
     ];
 
@@ -314,7 +308,7 @@ run_test('save_narrow', () => {
     ]);
     assert.equal(window.location.hash, '#narrow/is/private');
 
-    var url_pushed;
+    let url_pushed;
     global.history.pushState = (state, title, url) => {
         url_pushed = url;
     };

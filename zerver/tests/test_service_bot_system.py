@@ -170,6 +170,7 @@ class TestServiceBotBasics(ZulipTestCase):
 
 class TestServiceBotStateHandler(ZulipTestCase):
     def setUp(self) -> None:
+        super().setUp()
         self.user_profile = self.example_user("othello")
         self.bot_profile = do_create_user(email="embedded-bot-1@zulip.com",
                                           password="test",
@@ -294,8 +295,8 @@ class TestServiceBotStateHandler(ZulipTestCase):
         self.assertEqual(result.json()['storage'], updated_dict)
 
         # Assert errors on invalid requests.
-        params = {  # type: ignore # Ignore 'incompatible type "str": "List[str]"; expected "str": "str"' for testing
-            'keys': ["This is a list, but should be a serialized string."]
+        params = {
+            'keys': ["This is a list, but should be a serialized string."]  # type: ignore # Ignore 'incompatible type "str": "List[str]"; expected "str": "str"' for testing
         }
         result = self.client_get('/json/bot_storage', params)
         self.assert_json_error(result, 'Argument "keys" is not valid JSON.')
@@ -350,6 +351,7 @@ class TestServiceBotStateHandler(ZulipTestCase):
 
 class TestServiceBotConfigHandler(ZulipTestCase):
     def setUp(self) -> None:
+        super().setUp()
         self.user_profile = self.example_user("othello")
         self.bot_profile = self.create_test_bot('embedded', self.user_profile,
                                                 full_name='Embedded bot',
@@ -406,6 +408,7 @@ class TestServiceBotConfigHandler(ZulipTestCase):
 class TestServiceBotEventTriggers(ZulipTestCase):
 
     def setUp(self) -> None:
+        super().setUp()
         self.user_profile = self.example_user("othello")
         self.bot_profile = do_create_user(email="foo-bot@zulip.com",
                                           password="test",

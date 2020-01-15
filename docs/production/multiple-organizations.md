@@ -11,7 +11,7 @@ single server.
 
 Throughout this article, we'll assume you're working on a zulip server
 with hostname `zulip.example.com`.  You may also find the more
-[technically focused article on realms](../subsystems/realms.html) to be useful
+[technically focused article on realms](../subsystems/realms.md) to be useful
 reading.
 
 ## Subdomains
@@ -33,17 +33,17 @@ things:
   file.  That setting is the default in 1.7 and later.
 * Make sure you have SSL certificates for all of the subdomains you're
   going to use.  If you're using
-  [our LetsEncrypt instructions](ssl-certificates.html), it's easy to
+  [our LetsEncrypt instructions](ssl-certificates.md), it's easy to
   just specify multiple subdomains in your certificate request.
 * If necessary, modify your `nginx` configuration to use your new
   certificates.
 * Use `./manage.py generate_realm_creation_link` again to create your
   new organization.  Review
-  [the install instructions](install.html) if you need a
+  [the install instructions](install.md) if you need a
   refresher on how this works.
 * If you're planning on using GitHub auth or another social
   authentication method, review
-  [the notes on `SOCIAL_AUTH_SUBDOMAIN` below](#social-authentication).
+  [the notes on `SOCIAL_AUTH_SUBDOMAIN` below](#authentication).
 
 For servers hosting a large number of organizations, like
 [zulipchat.com](https://zulipchat.com), one can set
@@ -98,16 +98,18 @@ visible to the subdomain (so it's not possible for a single
 browser/client to be logged into both).  So we don't recommend that
 configuration.
 
-### Social authentication
+### Authentication
 
-If you're using GitHub authentication (or any other authentication
-backend that we implement using python-social-auth), you will likely
-want to set the `SOCIAL_AUTH_SUBDOMAIN` setting to something (`'auth'`
-is a good choice) and update the GitHub authentication callback URL to
-be that subdomain.  Otherwise, your users will experience confusing
-behavior where attempting to login using a social authentication
-backend will appear to log them out of the other organizations on your
-server.
+Many of Zulip's supported authentication methods (Google, GitHub,
+SAML, etc.) can require providing the third-party authentication
+provider with a whitelist of callback URLs to your Zulip server (or
+even a single URL).  For those vendors that support a whitelist, you
+can provide the callback URLs for each of your Zulip organizations.
+
+The cleaner solution is to register a special subdomain, e.g.
+`auth.zulip.example.com` with the third-party provider, and then set
+`SOCIAL_AUTH_SUBDOMAIN = 'auth'` in `/etc/zulip/settings.py`, so that
+Zulip knows to use that subdomain for these authentication callbacks.
 
 ### The system bot realm
 
@@ -116,7 +118,7 @@ avoid confusion as to why there's an extra realm when inspecting the
 Zulip database.
 
 Every Zulip server comes with 1 realm that isn't created by users: the
-`zulip` realm.  By default, this realm only contains the Zulip "system
+`zulipinternal` realm.  By default, this realm only contains the Zulip "system
 bots".  You can get a list of these on your system via
 `./scripts/get-django-setting INTERNAL_BOTS`, but this is where bots
 like "Notification Bot", "Welcome Bot", etc. exist.  In the future,

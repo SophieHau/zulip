@@ -3,17 +3,13 @@ zrequire('stream_data');
 zrequire('people');
 zrequire('util');
 
-var _window = {
-    location: {
-        protocol: "https:",
-        host: "example.com",
-        pathname: "/",
-    },
-};
+set_global('location', {
+    protocol: "https:",
+    host: "example.com",
+    pathname: "/",
+});
 
-global.patch_builtin('window', _window);
-
-var hamlet = {
+const hamlet = {
     user_id: 1,
     email: 'hamlet@example.com',
     full_name: 'Hamlet',
@@ -21,7 +17,7 @@ var hamlet = {
 
 people.add_in_realm(hamlet);
 
-var frontend = {
+const frontend = {
     stream_id: 99,
     name: 'frontend',
 };
@@ -30,26 +26,26 @@ stream_data.add_sub('frontend', frontend);
 
 run_test('hash_util', () => {
     // Test encodeHashComponent
-    var str = 'https://www.zulipexample.com';
-    var result1 = hash_util.encodeHashComponent(str);
+    const str = 'https://www.zulipexample.com';
+    const result1 = hash_util.encodeHashComponent(str);
     assert.equal(result1, 'https.3A.2F.2Fwww.2Ezulipexample.2Ecom');
 
     // Test decodeHashComponent
-    var result2 = hash_util.decodeHashComponent(result1);
+    const result2 = hash_util.decodeHashComponent(result1);
     assert.equal(result2, str);
 
     // Test encode_operand and decode_operand
 
     function encode_decode_operand(operator, operand, expected_val) {
-        var encode_result = hash_util.encode_operand(operator, operand);
+        const encode_result = hash_util.encode_operand(operator, operand);
         assert.equal(encode_result, expected_val);
-        var new_operand = encode_result;
-        var decode_result = hash_util.decode_operand(operator, new_operand);
+        const new_operand = encode_result;
+        const decode_result = hash_util.decode_operand(operator, new_operand);
         assert.equal(decode_result, operand);
     }
 
-    var operator = 'sender';
-    var operand = hamlet.email;
+    let operator = 'sender';
+    let operand = hamlet.email;
 
     encode_decode_operand(operator, operand, '1-hamlet');
 
@@ -121,7 +117,7 @@ run_test('test_parse_narrow', () => {
 });
 
 run_test('test_stream_edit_uri', () => {
-    var sub = {
+    const sub = {
         name: 'research & development',
         stream_id: 42,
     };
@@ -130,7 +126,7 @@ run_test('test_stream_edit_uri', () => {
 });
 
 run_test('test_by_conversation_and_time_uri', () => {
-    var message = {
+    let message = {
         type: 'stream',
         stream_id: frontend.stream_id,
         topic: 'testing',
@@ -144,7 +140,7 @@ run_test('test_by_conversation_and_time_uri', () => {
         type: 'private',
         display_recipient: [
             {
-                user_id: hamlet.user_id,
+                id: hamlet.user_id,
             },
         ],
         id: 43,

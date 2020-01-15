@@ -9,6 +9,7 @@ from zerver.lib.cache import generic_bulk_cached_fetch, user_profile_cache_key_i
     user_profile_by_id_cache_key
 from zerver.lib.request import JsonableError
 from zerver.lib.avatar import avatar_url
+from zerver.lib.exceptions import OrganizationAdministratorRequired
 from zerver.models import UserProfile, Service, Realm, \
     get_user_profile_by_id_in_realm, \
     CustomProfileField
@@ -47,19 +48,44 @@ def check_short_name(short_name_raw: str) -> str:
         raise JsonableError(_("Bad name or username"))
     return short_name
 
-def check_valid_bot_config(service_name: str, config_data: Dict[str, str]) -> None:
-    try:
-        from zerver.lib.bot_lib import get_bot_handler
-        bot_handler = get_bot_handler(service_name)
-        if hasattr(bot_handler, 'validate_config'):
-            bot_handler.validate_config(config_data)
-    except ConfigValidationError:
-        # The exception provides a specific error message, but that
-        # message is not tagged translatable, because it is
-        # triggered in the external zulip_bots package.
-        # TODO: Think of some clever way to provide a more specific
-        # error message.
-        raise JsonableError(_("Invalid configuration data!"))
+def check_valid_bot_config(bot_type: int, service_name: str,
+                           config_data: Dict[str, str]) -> None:
+    if bot_type == UserProfile.INCOMING_WEBHOOK_BOT:
+        from zerver.lib.integrations import WEBHOOK_INTEGRATIONS
+        config_options = None
+        for integration in WEBHOOK_INTEGRATIONS:
+            if integration.name == service_name:
+                # key: validator
+                config_options = {c[1]: c[2] for c in integration.config_options}
+                break
+        if not config_options:
+            raise JsonableError(_("Invalid integration '%s'.") % (service_name,))
+
+        missing_keys = set(config_options.keys()) - set(config_data.keys())
+        if missing_keys:
+            raise JsonableError(_("Missing configuration parameters: %s") % (
+                missing_keys,))
+
+        for key, validator in config_options.items():
+            value = config_data[key]
+            error = validator(key, value)
+            if error:
+                raise JsonableError(_("Invalid {} value {} ({})").format(
+                                    key, value, error))
+
+    elif bot_type == UserProfile.EMBEDDED_BOT:
+        try:
+            from zerver.lib.bot_lib import get_bot_handler
+            bot_handler = get_bot_handler(service_name)
+            if hasattr(bot_handler, 'validate_config'):
+                bot_handler.validate_config(config_data)
+        except ConfigValidationError:
+            # The exception provides a specific error message, but that
+            # message is not tagged translatable, because it is
+            # triggered in the external zulip_bots package.
+            # TODO: Think of some clever way to provide a more specific
+            # error message.
+            raise JsonableError(_("Invalid configuration data!"))
 
 # Adds an outgoing webhook or embedded bot service.
 def add_service(name: str, user_profile: UserProfile, base_url: Optional[str]=None,
@@ -78,10 +104,10 @@ def check_bot_creation_policy(user_profile: UserProfile, bot_type: int) -> None:
     if user_profile.realm.bot_creation_policy == Realm.BOT_CREATION_EVERYONE:
         return
     if user_profile.realm.bot_creation_policy == Realm.BOT_CREATION_ADMINS_ONLY:
-        raise JsonableError(_("Must be an organization administrator"))
+        raise OrganizationAdministratorRequired()
     if user_profile.realm.bot_creation_policy == Realm.BOT_CREATION_LIMIT_GENERIC_BOTS and \
             bot_type == UserProfile.DEFAULT_BOT:
-        raise JsonableError(_("Must be an organization administrator"))
+        raise OrganizationAdministratorRequired()
 
 def check_valid_bot_type(user_profile: UserProfile, bot_type: int) -> None:
     if bot_type not in user_profile.allowed_bot_types:
@@ -115,14 +141,14 @@ def bulk_get_users(emails: List[str], realm: Optional[Realm],
         #
         # But chaining __in and __iexact doesn't work with Django's
         # ORM, so we have the following hack to construct the relevant where clause
-        if len(emails) == 0:
-            return []
-
         upper_list = ", ".join(["UPPER(%s)"] * len(emails))
         where_clause = "UPPER(zerver_userprofile.email::text) IN (%s)" % (upper_list,)
         return query.select_related("realm").extra(
             where=[where_clause],
             params=emails)
+
+    def user_to_email(user_profile: UserProfile) -> str:
+        return user_profile.email.lower()
 
     return generic_bulk_cached_fetch(
         # Use a separate cache key to protect us from conflicts with
@@ -130,7 +156,7 @@ def bulk_get_users(emails: List[str], realm: Optional[Realm],
         lambda email: 'bulk_get_users:' + user_profile_cache_key_id(email, realm_id),
         fetch_users_by_email,
         [email.lower() for email in emails],
-        id_fetcher=lambda user_profile: user_profile.email.lower()
+        id_fetcher=user_to_email,
     )
 
 def user_ids_to_users(user_ids: List[int], realm: Realm) -> List[UserProfile]:
@@ -138,9 +164,6 @@ def user_ids_to_users(user_ids: List[int], realm: Realm) -> List[UserProfile]:
     # users should be included.
 
     def fetch_users_by_id(user_ids: List[int]) -> List[UserProfile]:
-        if len(user_ids) == 0:
-            return []
-
         return list(UserProfile.objects.filter(id__in=user_ids).select_related())
 
     user_profiles_by_id = generic_bulk_cached_fetch(

@@ -1,8 +1,4 @@
-var render_confirm_dialog = require("../templates/confirm_dialog.hbs");
-
-var confirm_dialog = (function () {
-
-var exports = {};
+const render_confirm_dialog = require("../templates/confirm_dialog.hbs");
 
 /*
     Look for confirm_dialog in settings_user_groups
@@ -30,10 +26,10 @@ var exports = {};
 */
 
 exports.launch = function (conf) {
-    var html = render_confirm_dialog();
-    var confirm_dialog = $(html);
+    const html = render_confirm_dialog();
+    const confirm_dialog = $(html);
 
-    var conf_fields = [
+    const conf_fields = [
         // The next three fields should be safe HTML. If callers
         // interpolate user data into strings, they should use
         // templates.
@@ -61,7 +57,7 @@ exports.launch = function (conf) {
     confirm_dialog.find('.confirm_dialog_heading').html(conf.html_heading);
     confirm_dialog.find('.confirm_dialog_body').html(conf.html_body);
 
-    var yes_button = confirm_dialog.find('.confirm_dialog_yes_button');
+    const yes_button = confirm_dialog.find('.confirm_dialog_yes_button');
 
     yes_button.html(conf.html_yes_button);
 
@@ -79,10 +75,4 @@ exports.launch = function (conf) {
     overlays.open_modal('confirm_dialog_modal');
 };
 
-return exports;
-}());
-
-if (typeof module !== 'undefined') {
-    module.exports = confirm_dialog;
-}
-window.confirm_dialog = confirm_dialog;
+window.confirm_dialog = exports;

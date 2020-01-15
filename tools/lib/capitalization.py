@@ -1,4 +1,3 @@
-
 from typing import List, Tuple, Match
 import re
 
@@ -74,6 +73,7 @@ IGNORED_PHRASES = [
     r"I want",
     r"I'm",
     # Specific short words
+    r"beta",
     r"and",
     r"bot",
     r"e.g.",

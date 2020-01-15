@@ -2,6 +2,31 @@ label {
     margin: 0;
 }
 
+label,
+h3 {
+    a {
+        color: inherit;
+    }
+
+    .fa-question-circle-o {
+        top: 1px;
+        opacity: 0.4;
+        position: relative;
+
+        &:hover {
+            opacity: 1;
+        }
+    }
+}
+
+label .fa-question-circle-o {
+    left: 2px;
+}
+
+h3 .fa-question-circle-o {
+    left: 5px;
+}
+
 .new-style {
     .block {
         display: block;
@@ -69,30 +94,6 @@ label {
     .input-size {
         width: 214px;
     }
-}
-
-.settings-section label > a,
-.settings-section h3 > a {
-    color: inherit;
-}
-
-.settings-section label .fa-question-circle-o {
-    top: 1px;
-    left: 2px;
-}
-
-.settings-section h3 .fa-question-circle-o {
-    top: 1px;
-    left: 5px;
-}
-
-.settings-section .fa-question-circle-o {
-    opacity: 0.4;
-    position: relative;
-}
-
-.settings-section .fa-question-circle-o:hover {
-    opacity: 1;
 }
 
 .user-avatar-section,
@@ -172,19 +173,10 @@ label {
 }
 
 .wrapped-table {
-    table-layout: fixed;
     word-break: break-word;
     word-wrap: break-word;
-    white-space: -moz-pre-wrap !important;
-    white-space: -webkit-pre-wrap;
-    white-space: -pre-wrap;
-    white-space: -o-pre-wrap;
     white-space: pre-wrap;
     white-space: normal;
-}
-
-.wrapped-cell {
-    width: 20%;
 }
 
 .table tbody {
@@ -199,15 +191,7 @@ label {
     width: 20%;
 }
 
-#uploaded_files_table > tr > td:nth-of-type(4),
-#uploaded_files_table > tr > td:nth-of-type(5),
-.upload-size,
-.upload-actions {
-    width: 15%;
-}
-
 #uploaded_files_table > tr > td:nth-of-type(1),
-#admin_filters_table > tr > td:nth-of-type(1),
 .upload-file-name {
     width: 30%;
     word-break: break-all;
@@ -239,110 +223,142 @@ td .button {
 
 .settings-section {
     display: none;
-
     width: calc(100% - 40px);
     margin: 20px;
-}
 
-.settings-wrapper {
-    display: none;
-}
+    &.show {
+        display: block;
+    }
 
-.settings-section.show,
-.settings-wrapper.show,
-.settings-wrapper.show .settings-section {
-    display: block;
-}
+    form {
+        margin: 0;
+    }
 
-.settings-section .settings-section-title {
-    font-size: 1.4em;
-    font-weight: 500;
-    margin: 10px 0px 10px 0px;
-}
+    .no-padding {
+        padding: 0;
+    }
 
-.settings-section .settings-section-title.transparent {
-    background-color: transparent;
-    color: inherit;
-}
+    .settings-section-title {
+        font-size: 1.4em;
+        font-weight: 500;
+        margin: 10px 0px 10px 0px;
 
-.settings-section form {
-    margin: 0;
-}
+        &.transparent {
+            background-color: transparent;
+            color: inherit;
+        }
 
-.settings-section .no-padding {
-    padding: 0;
-}
+        .table-title {
+            display: inline-block;
+            padding: 6px 0px;
+            margin-left: 5px;
 
-.settings-section .table.table-condensed.table-striped tbody {
-    border-bottom: none;
-}
+            i {
+                margin-right: 5px;
+            }
+        }
+    }
 
-.settings-section .table-striped thead th {
-    background-color: inherit;
-    color: inherit;
-    border-top: 1px solid hsla(0, 0%, 0%, 0.2) !important;
-    border-bottom: 1px solid hsla(0, 0%, 0%, 0.2) !important;
+    .table-striped {
+        table-layout: auto;
+
+        tbody {
+            border-bottom: none;
+        }
+
+        thead th {
+            background-color: inherit;
+            color: inherit;
+            border-top: 1px solid hsla(0, 0%, 0%, 0.2) !important;
+            border-bottom: 1px solid hsla(0, 0%, 0%, 0.2) !important;
+
+            &.active::after,
+            &[data-sort]:hover::after {
+                content: " \f0d8";
+                white-space: pre;
+                display: inline-block;
+                font: normal normal normal 12px/1 FontAwesome;
+                font-size: inherit;
+            }
+
+            &.active {
+                opacity: 1;
+                transition: opacity 100ms ease-out;
+
+                &.descend::after {
+                    content: " \f0d7";
+                }
+            }
+
+            &[data-sort]:hover {
+                cursor: pointer;
+                background-color: hsla(0, 0%, 0%, 0.05);
+                transition: background-color 100ms ease-in-out;
+
+                &:not(.active)::after {
+                    opacity: 0.3;
+                }
+            }
+        }
+
+        // Force the actions column to use the minimum space necessary
+        .actions {
+            width: 1%;
+            white-space: nowrap;
+        }
+    }
+
+    input[type=text].search {
+        float: right;
+        margin: 2px 5px 2px 0px;
+        padding: 2px 5px;
+        font-size: 0.9em;
+    }
+
+    .upgrade-tip,
+    .tip {
+        position: relative;
+        display: block;
+        background-color: hsl(46, 63%, 95%);
+        border: 1px solid hsl(49, 20%, 84%);
+        border-radius: 4px;
+        padding: 10px;
+        margin: 10px 0px;
+        font-size: 1rem;
+        line-height: 1.5;
+        color: hsl(0, 0%, 40%);
+
+        &::before {
+            display: inline;
+            margin-right: 8px;
+
+            font-family: FontAwesome, "Yantramanav", Source Sans Pro;
+            font-weight: 600;
+        }
+    }
+
+    .upgrade-tip {
+        &::before {
+            content: "\f135";
+        }
+
+        &:hover {
+            color: hsl(0, 0%, 20%);
+            border: 1px solid hsl(49, 20%, 60%);
+            box-shadow: 0px 0px 4px hsla(199, 79%, 56%, .2);
+
+            text-decoration: none;
+        }
+    }
+
+    .tip::before {
+        content: "\f0a2";
+    }
 }
 
 #admin-user-list .table tr:first-of-type td,
 #admin-bot-list .table tr:first-of-type td {
     border-top: none;
-}
-
-.settings-section input[type=text].search {
-    float: right;
-    margin: 2px 5px 2px 0px;
-    padding: 2px 5px;
-    font-size: 0.9em;
-}
-
-.settings-section .settings-section-title .table-title {
-    display: inline-block;
-    padding: 6px 0px;
-    margin-left: 5px;
-}
-
-.settings-section .settings-section-title .table-title i {
-    margin-right: 5px;
-}
-
-.settings-section .upgrade-tip,
-.settings-section .tip {
-    position: relative;
-    display: block;
-    background-color: hsl(46, 63%, 95%);
-    border: 1px solid hsl(49, 20%, 84%);
-    border-radius: 4px;
-    padding: 10px;
-    margin: 10px 0px;
-    font-size: 1rem;
-    line-height: 1.5;
-    color: hsl(0, 0%, 40%);
-}
-
-.settings-section .upgrade-tip::before,
-.settings-section .tip::before {
-    display: inline;
-    margin-right: 8px;
-
-    font-family: FontAwesome, "Yantramanav", Source Sans Pro;
-    font-weight: 600;
-}
-
-.settings-section .upgrade-tip::before {
-    content: "\f135";
-}
-
-.settings-section .upgrade-tip:hover {
-    color: hsl(0, 0%, 20%);
-    border: 1px solid hsl(49, 20%, 60%);
-    box-shadow: 0px 0px 4px hsla(199, 79%, 56%, .2);
-
-    text-decoration: none;
-}
-
-.settings-section .tip::before {
-    content: "\f0a2";
 }
 
 .dynamic-input {
@@ -462,12 +478,12 @@ input[type=checkbox] + .inline-block {
 #settings_page .icon-button .icon-button-icon {
     vertical-align: bottom;
     margin-right: 3px;
-    font-size: 24px;
-    font-weight: 600;
+    margin-bottom: 1px;
+    font-size: 15px;
+    font-weight: 500;
 }
 
 #settings_page .icon-button.primary .icon-button-icon {
-    font-size: 15px;
     font-weight: lighter;
     color: hsl(0, 0%, 100%);
 }
@@ -659,9 +675,13 @@ input[type=checkbox].inline-block {
 }
 
 #account-settings .alert-notification.custom-field-status {
+    padding-top: 0px;
+    padding-bottom: 0px;
     margin-top: 0px;
     font-size: 14px;
-    margin-bottom: 4px;
+    padding-left: 0px;
+    margin-left: 5px;
+    border: none;
 }
 
 #realm_notifications_stream_label > button,
@@ -708,10 +728,6 @@ input[type=checkbox].inline-block {
     margin-bottom: 20px;
 }
 
-.admin_emoji_table {
-    margin: 20px auto;
-}
-
 .emoji_image {
     width: 20px;
     display: block;
@@ -723,13 +739,15 @@ input[type=checkbox].inline-block {
 
 .add-new-emoji-box,
 .add-new-user-group-box,
-.add-new-alert-word-box {
+.add-new-alert-word-box,
+.add-new-export-box {
     margin-bottom: 20px;
 }
 
 .add-new-emoji-box .new-emoji-form,
 .add-new-user-group-box .new-user-group-form,
-.add-new-alert-word-box .new-alert-word-form {
+.add-new-alert-word-box .new-alert-word-form,
+.add-new-export-box {
     margin: 10px 0px;
 }
 
@@ -787,10 +805,6 @@ input[type=checkbox].inline-block {
     }
 }
 
-#filter-settings .admin_filters_table {
-    margin-top: 20px;
-}
-
 #admin-filter-pattern-status,
 #admin-filter-format-status {
     margin: 20px 0 0 0;
@@ -800,6 +814,7 @@ input[type=checkbox].inline-block {
     position: relative;
     max-height: calc(95vh - 220px);
     overflow: auto;
+    width: 100%;
 }
 
 #admin-default-streams-list .progressive-table-wrapper {
@@ -902,9 +917,6 @@ input[type=checkbox].inline-block {
 .bots_list .api_key .api-key-value-and-button {
     display: block;
     margin-left: 0px;
-    white-space: -moz-pre-wrap !important;
-    white-space: -pre-wrap;
-    white-space: -o-pre-wrap;
     white-space: pre-wrap;
     word-wrap: break-word;
     word-break: break-all;
@@ -992,9 +1004,8 @@ input[type=checkbox].inline-block {
 }
 
 #upload_avatar_spinner,
-#upload_logo_spinner,
 #upload_icon_spinner,
-#upload_night_logo_spinner {
+.upload-logo-spinner {
     font-size: 14px;
     margin: auto;
 }
@@ -1031,9 +1042,6 @@ input[type=checkbox].inline-block {
 
 #alert_words_list .alert_word_listing .value {
     display: block;
-    white-space: -moz-pre-wrap !important;
-    white-space: -pre-wrap;
-    white-space: -o-pre-wrap;
     white-space: pre-wrap;
     word-wrap: break-word;
     word-break: break-all;
@@ -1090,6 +1098,7 @@ input[type=checkbox].inline-block {
 }
 
 #user-settings-avatar {
+    position: relative;
     border-radius: 5px;
     box-shadow: 0px 0px 10px hsla(0, 0%, 0%, 0.1);
     width: 200px;
@@ -1108,8 +1117,8 @@ input[type=checkbox].inline-block {
         opacity: 0;
         font-size: 3rem;
         position: absolute;
-        top: 67px; // 31.5px + 5px + 30px
-        right: 30px;
+        top: 10px; // 31.5px + 5px + 30px
+        right: 10px;
         z-index: 99;
     }
 
@@ -1118,7 +1127,7 @@ input[type=checkbox].inline-block {
         width: 200px;
         height: 20px;
         position: absolute;
-        bottom: 19%;
+        bottom: 6px;
         left: 0%;
         font-size: 0.9em;
         visibility: hidden;
@@ -1149,6 +1158,7 @@ input[type=checkbox].inline-block {
 
         #user-avatar-source {
             visibility: visible;
+            z-index: 99;
         }
     }
 }
@@ -1160,8 +1170,7 @@ input[type=checkbox].inline-block {
     height: 100px;
 }
 
-#realm-settings-logo,
-#realm-settings-night-logo {
+.realm-logo-img {
     box-shadow: 0px 0px 10px hsla(0, 0%, 0%, 0.2);
     /* We allow actual images up to 800x100 in the main display, but the
        settings UI looks bad beyond ~500px, so we limit the width here */
@@ -1169,11 +1178,11 @@ input[type=checkbox].inline-block {
     max-width: 500px;
 }
 
-#realm-settings-night-logo {
+#night-logo-section .realm-logo-img {
     background-color: hsl(212, 28%, 18%);
 }
 
-#realm-settings-logo {
+#day-logo-section .realm-logo-img {
     background-color: hsla(0, 100%, 100%, 1);
 }
 
@@ -1182,98 +1191,97 @@ input[type=checkbox].inline-block {
     margin-right: 5px;
 }
 
-#user-groups .user-group {
-    margin-bottom: 20px;
-    padding: 10px;
-    border-radius: 5px;
-}
+#user-groups {
+    .user-group {
+        margin-bottom: 20px;
+        padding: 10px;
+        border-radius: 5px;
 
-#user-groups .user-group-status {
-    margin-bottom: 10px;
-}
+        h4 {
+            font-weight: normal;
+            margin: 0px;
+            display: flex;
+            align-items: center;
+            justify-content: left;
+        }
 
-#user-groups .user-group h4 {
-    font-weight: normal;
-    margin: 0px;
-    display: flex;
-    align-items: center;
-    justify-content: left;
-}
+        span[contenteditable] {
+            display: inline-block;
+            word-break: break-all;
+            &:empty::before {
+                opacity: 0.5;
+                display: inline-block;
+                content: attr(data-placeholder);
+            }
+        }
 
-#user-groups p {
-    line-height: 2;
-    margin: 0;
-}
+        span[contenteditable]:focus,
+        span[contenteditable="true"]:hover {
+            border-bottom: 1px solid hsl(0, 0%, 80%);
+            margin-bottom: -1px;
+            outline: none;
+        }
 
-#user-groups .spacer {
-    margin: 0 2px;
-}
+        .pill-container .input[contenteditable]:empty::after {
+            content: attr(data-placeholder);
+            opacity: 0.5;
+        }
+    }
 
-#user-groups .subscribers,
-#user-groups .user-group h4 > .name {
-    font-weight: bold;
-}
+    .user-group-status {
+        margin-bottom: 10px;
+    }
 
-#user-groups .user-group span[contenteditable] {
-    display: inline-block;
-    word-break: break-all;
-}
+    p {
+        line-height: 2;
+        margin: 0;
+    }
 
-#user-groups .ntm {
-    cursor: not-allowed;
-}
+    .spacer {
+        margin: 0 2px;
+    }
 
-#user-groups .user-group span[contenteditable]:empty::before {
-    opacity: 0.5;
-    display: inline-block;
-    content: attr(data-placeholder);
-}
+    .subscribers,
+    .user-group h4 > .name {
+        font-weight: bold;
+    }
 
-#user-groups .user-group span[contenteditable]:focus,
-#user-groups .user-group span[contenteditable="true"]:hover {
-    border-bottom: 1px solid hsl(0, 0%, 80%);
-    margin-bottom: -1px;
-    outline: none;
-}
+    .ntm {
+        cursor: not-allowed;
+        h4 > .button {
+            cursor: not-allowed;
+            display: none;
+            &:hover {
+                border-color: hsl(4, 56%, 82%);
+            }
+        }
+    }
 
-#user-groups .user-group .pill-container .input[contenteditable]:empty::after {
-    content: attr(data-placeholder);
-    opacity: 0.5;
-}
+    .save-status {
+        background-color: transparent;
+        padding: 2px 5px;
+        border-radius: 4px;
+        margin-left: 10px;
+        border-style: solid;
+        border-width: 1px;
+        display: none;
+        opacity: 0;
+    }
 
-#user-groups .ntm h4 > .button {
-    cursor: not-allowed;
-    display: none;
-}
+    .checkmark {
+        height: 12px;
+    }
 
-#user-groups .ntm h4 > .button:hover {
-    border-color: hsl(4, 56%, 82%);
-}
+    .delete {
+        margin-left: auto;
+    }
 
-#user-groups .save-status {
-    background-color: transparent;
-    padding: 2px 5px;
-    border-radius: 4px;
-    margin-left: 10px;
-    border-style: solid;
-    border-width: 1px;
-    display: none;
-    opacity: 0;
-}
-
-#user-groups .checkmark {
-    height: 12px;
-}
-
-#user-groups .delete {
-    margin-left: auto;
-}
-
-#user-groups .save-instructions {
-    display: none;
-    opacity: 0;
-    color: hsl(0, 0%, 20%);
-    font-size: 0.9em;
+    .save-instructions {
+        display: none;
+        opacity: 0;
+        color: hsl(0, 0%, 20%);
+        font-size: 0.9em;
+    }
 }
 
 /* -- new settings overlay -- */
@@ -1363,34 +1371,11 @@ input[type=checkbox].inline-block {
     background-color: hsla(0, 0%, 0%, 0.02);
 }
 
-#settings_page .table-striped thead th {
-    background-color: inherit;
-    color: inherit;
-}
-
-#settings_page .table-striped thead th.active {
-    opacity: 1;
-    transition: opacity 100ms ease-out;
-}
-
 .modal.fade {
     /* Ensure the modal is entirely off-screen while we fade the background */
     top: -50%;
     transition: opacity 0.3s linear;
     transform: translateY(-50%);
-}
-
-#settings_page .table-striped thead th.active::after {
-    content: " \f0d8";
-    white-space: pre;
-    display: inline-block;
-    font: normal normal normal 12px/1 FontAwesome;
-    font-size: inherit;
-    text-rendering: auto;
-}
-
-#settings_page .table-striped thead th.active.descend::after {
-    content: " \f0d7";
 }
 
 #settings_page input.search {
@@ -1531,7 +1516,7 @@ input[type=checkbox].inline-block {
     padding-bottom: 20px;
 }
 
-body:not(.night-mode) #account-settings .custom_user_field .datepicker {
+body:not(.night-mode) #settings_page .custom_user_field .datepicker {
     background-color: hsl(0, 0%, 100%);
 }
 
@@ -1563,7 +1548,8 @@ body:not(.night-mode) #account-settings .custom_user_field .datepicker {
 
 #settings_page #change_full_name_modal .change_full_name_info,
 #settings_page #change_email_modal .change_email_info,
-#settings_page #change_password_modal .change_password_info {
+#settings_page #change_password_modal .change_password_info,
+#settings_page #api_key_modal #api_key_status {
     margin-top: 3px;
 }
 
@@ -1755,8 +1741,7 @@ input[type=text]#settings_search {
         margin: 5px 0 0 0;
     }
 
-    #realm-settings-logo,
-    #realm-settings-night-logo {
+    .realm-logo-img {
         max-width: 400px;
         height: 50px;
     }
@@ -1812,10 +1797,6 @@ input[type=text]#settings_search {
     }
 }
 
-#show_api_key_box {
-    padding-bottom: 20px;
-}
-
 #muted_topics_table {
     margin-bottom: 0px;
     width: 90%;
@@ -1828,10 +1809,6 @@ input[type=text]#settings_search {
 
 #admin-user-list .last_active {
     width: 100px;
-}
-
-thead .actions {
-    min-width: 230px;
 }
 
 #settings_page .display-settings-form select {
@@ -1916,8 +1893,6 @@ thead .actions {
     outline: 0;
     outline: 1px dotted \9;
 
-    -webkit-box-shadow: inset 0 1px 1px hsla(0, 0%, 0%, 0.075), 0 0 8px hsla(206, 80%, 62%, 0.6);
-    -moz-box-shadow: inset 0 1px 1px hsla(0, 0%, 0%, 0.075), 0 0 8px hsla(206, 80%, 62%, 0.6);
     box-shadow: inset 0 1px 1px hsla(0, 0%, 0%, 0.075), 0 0 8px hsla(206, 80%, 62%, 0.6);
 }
 
@@ -1948,4 +1923,22 @@ thead .actions {
 #toggle_collapse {
     margin-left: 2px;
     display: inline-block;
+}
+
+.admin_exports_table {
+    margin: 20px;
+}
+
+@media only screen and (min-width: 700px) and (max-width: 875px) {
+    .bots_list .bot-information-box {
+        width: calc(100% - 10px);
+        max-height: unset;
+    }
+}
+
+@media only screen and (max-width: 625px) {
+    .bots_list .bot-information-box {
+        width: calc(100% - 10px);
+        max-height: unset;
+    }
 }

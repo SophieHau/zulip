@@ -1,14 +1,13 @@
-
 from argparse import ArgumentParser
-from typing import Any, Iterable, Tuple, Optional
+from typing import Any, Iterable, Optional, Tuple
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from zerver.lib.actions import do_change_is_admin
 from zerver.lib.bulk_create import bulk_create_users
-from zerver.models import Realm, UserProfile, \
-    email_to_username, get_client, get_system_bot
+from zerver.models import Realm, UserProfile, email_to_username, get_client, \
+    get_system_bot
 
 settings.TORNADO_SERVER = None
 
@@ -33,7 +32,7 @@ class Command(BaseCommand):
         if Realm.objects.count() > 0:
             print("Database already initialized; doing nothing.")
             return
-        realm = Realm.objects.create(string_id=settings.INTERNAL_BOT_DOMAIN.split('.')[0])
+        realm = Realm.objects.create(string_id=settings.SYSTEM_BOT_REALM)
 
         names = [(settings.FEEDBACK_BOT_NAME, settings.FEEDBACK_BOT)]
         create_users(realm, names, bot_type=UserProfile.DEFAULT_BOT)

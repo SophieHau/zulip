@@ -3,10 +3,19 @@
 Zulip uses the [standard Django system for doing schema
 migrations](https://docs.djangoproject.com/en/1.10/topics/migrations/).
 There is some example usage in the [new feature
-tutorial](../tutorials/new-feature-tutorial.html).
+tutorial](../tutorials/new-feature-tutorial.md).
 
 This page documents some important issues related to writing schema
 migrations.
+
+* If your database migration is just to reflect new fields in
+  `models.py`, you'll want to just run `manage.py migrations` to
+  generate a migration file (remember to `git add` it).  If the
+  `models.py` change is a single field or table being added, the
+  automatically generated names are nice andx clear, but if the
+  migration changes more than one thing, you'll get a name determined
+  by the date like `0089_auto_20170710_1353.py` and will want to
+  rename the migration file.
 
 * **Naming**: Please provide clear names for new database migrations
   (e.g. `0072_realmauditlog_add_index_event_time.py`).  Since in the
@@ -26,12 +35,20 @@ migrations.
 
 * **Numbering conflicts across branches**: If you've done your schema
   change in a branch, and meanwhile another schema change has taken
-  place, Django will now have two migrations with the same number. To
-  fix this, you can either run `./tools/renumber-migrations` which
-  renumbers your migration(s) and fixes up the "dependencies" entries in your
-  migration(s), and then rewrite your git history as needed, or you can do it
-  manually. There is a tutorial [here](migration-renumbering.html) that
-  walks you though that process.
+  place, Django will now have two migrations with the same
+  number. There are two easy way to fix this:
+  * If your migrations were automatically generated using `manage.py
+    makemigrations`, a good option is to just remove your migration
+    and rerun the command after rebasing.  Remember to `git rebase` to
+    do this in the the commit that changed `models.py` if you have a
+    multi-commit branch.
+  * If you wrote code as part of preparing your migrations, or prefer
+    this workflow, you can use run `./tools/renumber-migrations`,
+    which renumbers your migration(s) and fixes up the "dependencies"
+    entries in your migration(s).  The tool could use a bit of work to
+    prompt unnecessarily less, but it will update the working tree for
+    you automatically (you still need to do all the `git add`
+    commands, etc.).
 
 * **Atomicity**.  By default, each Django migration is run atomically
   inside a transaction.  This can be problematic if one wants to do

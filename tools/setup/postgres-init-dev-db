@@ -98,7 +98,6 @@ CREATE SCHEMA zulip;
 EOF
 
 "${ROOT_POSTGRES[@]}" -v ON_ERROR_STOP=1 -e "$DBNAME_BASE" << EOF
-CREATE EXTENSION tsearch_extras SCHEMA zulip;
 CREATE EXTENSION pgroonga;
 GRANT USAGE ON SCHEMA pgroonga TO $USERNAME;
 EOF
@@ -107,6 +106,6 @@ psql -v ON_ERROR_STOP=1 -e -h localhost postgres "$USERNAME" <<EOF
 CREATE DATABASE $DBNAME TEMPLATE $DBNAME_BASE;
 EOF
 
-sh "$(dirname "$0")/../../scripts/setup/flush-memcached"
+"$(dirname "$0")/../../scripts/setup/flush-memcached"
 
 echo "Database created"

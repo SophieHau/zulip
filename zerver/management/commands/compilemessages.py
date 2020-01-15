@@ -1,12 +1,11 @@
-
 import json
 import os
-import polib
 import re
-import ujson
 from subprocess import CalledProcessError, check_output
 from typing import Any, Dict, List
 
+import polib
+import ujson
 from django.conf import settings
 from django.conf.locale import LANG_INFO
 from django.core.management.base import CommandParser
@@ -14,6 +13,7 @@ from django.core.management.commands import compilemessages
 from django.utils.translation.trans_real import to_language
 
 from zerver.lib.i18n import with_language
+
 
 class Command(compilemessages.Command):
 
@@ -73,8 +73,8 @@ class Command(compilemessages.Command):
                 raise Exception("Unknown language %s" % (locale,))
 
     def get_locales(self) -> List[str]:
-        tracked_files = check_output(['git', 'ls-files', 'locale'])
-        tracked_files = tracked_files.decode().split()
+        output = check_output(['git', 'ls-files', 'locale'])
+        tracked_files = output.decode().split()
         regex = re.compile(r'locale/(\w+)/LC_MESSAGES/django.po')
         locales = ['en']
         for tracked_file in tracked_files:

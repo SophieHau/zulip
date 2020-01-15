@@ -3,8 +3,8 @@ zrequire('util');
 zrequire('people');
 zrequire('message_store');
 
-var noop = function () {};
-var people = global.people;
+const noop = function () {};
+const people = global.people;
 
 set_global('$', global.make_zjquery());
 set_global('document', 'document-stub');
@@ -28,49 +28,71 @@ set_global('page_params', {
 
 set_global('blueslip', global.make_zblueslip());
 
-var me = {
+const me = {
     email: 'me@example.com',
     user_id: 101,
     full_name: 'Me Myself',
 };
 
-var alice = {
+const alice = {
     email: 'alice@example.com',
     user_id: 102,
     full_name: 'Alice',
 };
 
-var bob = {
+const bob = {
     email: 'bob@example.com',
     user_id: 103,
     full_name: 'Bob',
 };
 
-var cindy = {
+const cindy = {
     email: 'cindy@example.com',
     user_id: 104,
     full_name: 'Cindy',
+};
+
+const denise  = {
+    email: 'denise@example.com',
+    user_id: 105,
+    full_name: 'Denise ',
 };
 
 people.add_in_realm(me);
 people.add_in_realm(alice);
 people.add_in_realm(bob);
 people.add_in_realm(cindy);
+people.add_in_realm(denise);
 
 global.people.initialize_current_user(me.user_id);
 
+function convert_recipients(people) {
+    // Display_recipient uses `id` for user_ids.
+    return _.map(people, (p) => {
+        return {
+            email: p.email,
+            id: p.user_id,
+            full_name: p.full_name,
+        };
+    });
+}
+
 run_test('add_message_metadata', () => {
-    var message = {
+    let message = {
         sender_email: 'me@example.com',
         sender_id: me.user_id,
         type: 'private',
-        display_recipient: [me, bob, cindy],
+        display_recipient: convert_recipients([me, bob, cindy]),
         flags: ['has_alert_word'],
         is_me_message: false,
         id: 2067,
     };
     message_store.set_message_booleans(message);
     message_store.add_message_metadata(message);
+
+    assert.deepEqual(
+        message_store.user_ids().sort(),
+        [me.user_id, bob.user_id, cindy.user_id]);
 
     assert.equal(message.is_private, true);
     assert.equal(message.reply_to, 'bob@example.com,cindy@example.com');
@@ -79,7 +101,7 @@ run_test('add_message_metadata', () => {
     assert.equal(message.alerted, true);
     assert.equal(message.is_me_message, false);
 
-    var retrieved_message = message_store.get(2067);
+    const retrieved_message = message_store.get(2067);
     assert.equal(retrieved_message, message);
 
     // access cached previous message, and test match subject/content
@@ -97,8 +119,8 @@ run_test('add_message_metadata', () => {
     assert.equal(message.match_content, 'bar content');
 
     message = {
-        sender_email: 'me@example.com',
-        sender_id: me.user_id,
+        sender_email: denise.email,
+        sender_id: denise.user_id,
         type: 'stream',
         display_recipient: 'Zoolippy',
         topic: 'cool thing',
@@ -109,16 +131,59 @@ run_test('add_message_metadata', () => {
     message_store.set_message_booleans(message);
     message_store.add_message_metadata(message);
     assert.deepEqual(message.stream, message.display_recipient);
-    assert.equal(message.reply_to, 'me@example.com');
+    assert.equal(message.reply_to, 'denise@example.com');
     assert.deepEqual(message.flags, undefined);
     assert.equal(message.alerted, false);
+
+    assert.deepEqual(
+        message_store.user_ids().sort(),
+        [me.user_id, bob.user_id, cindy.user_id, denise.user_id]);
+});
+
+run_test('message_booleans_parity', () => {
+    // We have two code paths that update/set message booleans.
+    // This test asserts that both have identical behavior for the
+    // flags common between them.
+    const assert_bool_match = (flags, expected_message) => {
+        const set_message = {topic: 'set_message_booleans', flags: flags};
+        const update_message = {topic: 'update_booleans'};
+        message_store.set_message_booleans(set_message);
+        message_store.update_booleans(update_message, flags);
+        Object.keys(expected_message).forEach((key) => {
+            assert.equal(set_message[key], expected_message[key], `'${key}' != ${expected_message[key]}`);
+            assert.equal(update_message[key], expected_message[key]);
+        });
+        assert.equal(set_message.topic, 'set_message_booleans');
+        assert.equal(update_message.topic, 'update_booleans');
+    };
+
+    assert_bool_match(['wildcard_mentioned'],
+                      {
+                          mentioned: true,
+                          mentioned_me_directly: false,
+                          alerted: false,
+                      });
+
+    assert_bool_match(['mentioned'],
+                      {
+                          mentioned: true,
+                          mentioned_me_directly: true,
+                          alerted: false,
+                      });
+
+    assert_bool_match(['has_alert_word'],
+                      {
+                          mentioned: false,
+                          mentioned_me_directly: false,
+                          alerted: true,
+                      });
 });
 
 run_test('errors', () => {
     // Test a user that doesn't exist
-    var message = {
+    let message = {
         type: 'private',
-        display_recipient: [{user_id: 92714}],
+        display_recipient: [{id: 92714}],
     };
 
     blueslip.set_test_data('error', 'Unknown user_id in get_person_from_user_id: 92714');
@@ -126,11 +191,11 @@ run_test('errors', () => {
 
     // Expect each to throw two blueslip errors
     // One from message_store.js, one from person.js
-    var emails = message_store.get_pm_emails(message);
+    const emails = message_store.get_pm_emails(message);
     assert.equal(emails, '?');
     assert.equal(blueslip.get_test_logs('error').length, 2);
 
-    var names = message_store.get_pm_full_names(message);
+    const names = message_store.get_pm_full_names(message);
     assert.equal(names, '?');
     assert.equal(blueslip.get_test_logs('error').length, 4);
 
@@ -142,7 +207,7 @@ run_test('errors', () => {
     };
 
     // This should early return and not run pm_conversation.set_partner
-    var num_partner = 0;
+    let num_partner = 0;
     set_global('pm_conversation', {
         set_partner: function () {
             num_partner += 1;
@@ -153,18 +218,23 @@ run_test('errors', () => {
 });
 
 run_test('update_booleans', () => {
-    var message = {};
+    const message = {};
 
     // First, test fields that we do actually want to update.
     message.mentioned = false;
     message.mentioned_me_directly = false;
     message.alerted = false;
 
-    var flags = ['mentioned', 'has_alert_word', 'read'];
+    let flags = ['mentioned', 'has_alert_word', 'read'];
     message_store.update_booleans(message, flags);
     assert.equal(message.mentioned, true);
     assert.equal(message.mentioned_me_directly, true);
     assert.equal(message.alerted, true);
+
+    flags = ['wildcard_mentioned', 'unread'];
+    message_store.update_booleans(message, flags);
+    assert.equal(message.mentioned, true);
+    assert.equal(message.mentioned_me_directly, false);
 
     flags = ['read'];
     message_store.update_booleans(message, flags);
@@ -191,11 +261,11 @@ run_test('each', () => {
 });
 
 run_test('message_id_change', () => {
-    var message = {
+    const message = {
         sender_email: 'me@example.com',
         sender_id: me.user_id,
         type: 'private',
-        display_recipient: [me, bob, cindy],
+        display_recipient: convert_recipients([me, bob, cindy]),
         flags: ['has_alert_word'],
         id: 401,
     };
@@ -209,7 +279,7 @@ run_test('message_id_change', () => {
     set_global('message_list', {});
     set_global('home_msg_list', {});
 
-    var opts = {
+    const opts = {
         old_id: 401,
         new_id: 402,
     };
@@ -217,7 +287,7 @@ run_test('message_id_change', () => {
     global.with_stub(function (stub) {
         home_msg_list.change_message_id = stub.f;
         message_store.reify_message_id(opts);
-        var msg_id = stub.get_args('old', 'new');
+        const msg_id = stub.get_args('old', 'new');
         assert.equal(msg_id.old, 401);
         assert.equal(msg_id.new, 402);
     });
@@ -226,7 +296,7 @@ run_test('message_id_change', () => {
     global.with_stub(function (stub) {
         home_msg_list.view.change_message_id = stub.f;
         message_store.reify_message_id(opts);
-        var msg_id = stub.get_args('old', 'new');
+        const msg_id = stub.get_args('old', 'new');
         assert.equal(msg_id.old, 401);
         assert.equal(msg_id.new, 402);
     });

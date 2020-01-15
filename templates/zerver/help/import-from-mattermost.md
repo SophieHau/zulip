@@ -170,18 +170,22 @@ root domain. Replace the last line above with the following, after replacing
 
 {!import-login.md!}
 
-[upgrade-zulip-from-git]: https://zulip.readthedocs.io/en/latest/production/maintain-secure-upgrade.html#upgrading-from-a-git-repository
+[upgrade-zulip-from-git]: https://zulip.readthedocs.io/en/latest/production/upgrade-or-modify.html#upgrading-from-a-git-repository
 
 ## Caveats
 
 Mattermost's export tool is incomplete and does not support exporting
 the following data:
 
-* private messages and group private messages between users
 * user avatars
 * uploaded files and message attachments.
 
 We expect to add support for importing these data from Mattermost once
 Mattermost's export tool includes them.
 
-[upgrade-zulip-from-git]: https://zulip.readthedocs.io/en/latest/production/maintain-secure-upgrade.html#upgrading-from-a-git-repository
+Additionally, Mattermost's data exports do not associated private
+messages with a specific Mattermost team.  For that reason, the import
+tool will only import private messages for data export archives
+containing a single Mattermost team.
+
+[upgrade-zulip-from-git]: https://zulip.readthedocs.io/en/latest/production/upgrade-or-modify.html#upgrading-from-a-git-repository

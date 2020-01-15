@@ -1,16 +1,12 @@
-var settings_display = (function () {
-
-var exports = {};
-
-var meta = {
+const meta = {
     loaded: false,
 };
 
 function change_display_setting(data, status_element, success_msg, sticky) {
-    var $status_el = $(status_element);
-    var status_is_sticky = $status_el.data('is_sticky');
-    var display_message = status_is_sticky ? $status_el.data('sticky_msg') : success_msg;
-    var opts = {
+    const $status_el = $(status_element);
+    const status_is_sticky = $status_el.data('is_sticky');
+    const display_message = status_is_sticky ? $status_el.data('sticky_msg') : success_msg;
+    const opts = {
         success_msg: display_message,
         sticky: status_is_sticky || sticky,
     };
@@ -34,6 +30,17 @@ exports.demote_inactive_streams_values = {
     never: {
         code: 3,
         description: i18n.t("Never"),
+    },
+};
+
+exports.twenty_four_hour_time_values = {
+    twenty_four_hour_clock: {
+        value: true,
+        description: i18n.t("24-hour clock (17:00)"),
+    },
+    twelve_hour_clock: {
+        value: false,
+        description: i18n.t("12-hour clock (5:00 PM)"),
     },
 };
 
@@ -62,6 +69,8 @@ exports.set_up = function () {
 
     $("#demote_inactive_streams").val(page_params.demote_inactive_streams);
 
+    $("#twenty_four_hour_time").val(JSON.stringify(page_params.twenty_four_hour_time));
+
     $(".emojiset_choice[value=" + page_params.emojiset + "]").prop("checked", true);
 
     $("#default_language_modal [data-dismiss]").click(function () {
@@ -70,7 +79,7 @@ exports.set_up = function () {
 
     _.each(exports.all_display_settings.settings.user_display_settings, function (setting) {
         $("#" + setting).change(function () {
-            var data = {};
+            const data = {};
             data[setting] = JSON.stringify($(this).prop('checked'));
 
             if (["left_side_userlist"].indexOf(setting) > -1) {
@@ -89,11 +98,11 @@ exports.set_up = function () {
         e.stopPropagation();
         overlays.close_modal('default_language_modal');
 
-        var $link = $(e.target).closest("a[data-code]");
-        var setting_value = $link.attr('data-code');
-        var data = {default_language: JSON.stringify(setting_value)};
+        const $link = $(e.target).closest("a[data-code]");
+        const setting_value = $link.attr('data-code');
+        const data = {default_language: JSON.stringify(setting_value)};
 
-        var new_language = $link.attr('data-name');
+        const new_language = $link.attr('data-name');
         $('#default_language_name').text(new_language);
 
         change_display_setting(data, '#language-settings-status',
@@ -108,7 +117,7 @@ exports.set_up = function () {
     });
 
     $('#demote_inactive_streams').change(function () {
-        var data = {demote_inactive_streams: this.value};
+        const data = {demote_inactive_streams: this.value};
         change_display_setting(data, '#display-settings-status');
     });
 
@@ -116,18 +125,19 @@ exports.set_up = function () {
         window.location.reload();
     });
 
+
     $("#twenty_four_hour_time").change(function () {
-        var data = {twenty_four_hour_time: JSON.stringify(this.checked)};
+        const data = {twenty_four_hour_time: this.value};
         change_display_setting(data, '#time-settings-status');
     });
 
     $("#user_timezone").change(function () {
-        var data = {timezone: JSON.stringify(this.value)};
+        const data = {timezone: JSON.stringify(this.value)};
         change_display_setting(data, '#time-settings-status');
     });
     $(".emojiset_choice").click(function () {
-        var data = {emojiset: JSON.stringify($(this).val())};
-        var spinner = $("#emoji-settings-status").expectOne();
+        const data = {emojiset: JSON.stringify($(this).val())};
+        const spinner = $("#emoji-settings-status").expectOne();
         loading.make_indicator(spinner, {text: settings_ui.strings.saving });
 
         channel.patch({
@@ -142,7 +152,7 @@ exports.set_up = function () {
     });
 
     $("#translate_emoticons").change(function () {
-        var data = {translate_emoticons: JSON.stringify(this.checked)};
+        const data = {translate_emoticons: JSON.stringify(this.checked)};
         change_display_setting(data, '#emoji-settings-status');
     });
 };
@@ -160,12 +170,12 @@ exports.report_emojiset_change = function () {
             $("#emojiset_select").val(page_params.emojiset);
             ui_report.success(i18n.t("Emojiset changed successfully!"),
                               $('#emoji-settings-status').expectOne());
-            var spinner = $("#emoji-settings-status").expectOne();
+            const spinner = $("#emoji-settings-status").expectOne();
             settings_ui.display_checkmark(spinner);
         }
     }
 
-    var emojiset = page_params.emojiset;
+    let emojiset = page_params.emojiset;
 
     if (page_params.emojiset === 'text') {
         // For `text` emojiset we fallback to `google-blob` emojiset
@@ -173,9 +183,9 @@ exports.report_emojiset_change = function () {
         emojiset = 'google-blob';
     }
 
-    var sprite = new Image();
+    const sprite = new Image();
     sprite.onload = function () {
-        var sprite_css_href = "/static/generated/emoji/" + emojiset + "-sprite.css";
+        const sprite_css_href = "/static/generated/emoji/" + emojiset + "-sprite.css";
         $("#emoji-spritesheet").attr('href', sprite_css_href);
         emoji_success();
     };
@@ -183,19 +193,14 @@ exports.report_emojiset_change = function () {
 };
 
 exports.update_page = function () {
-    $("#twenty_four_hour_time").prop('checked', page_params.twenty_four_hour_time);
     $("#left_side_userlist").prop('checked', page_params.left_side_userlist);
     $("#default_language_name").text(page_params.default_language_name);
     $("#translate_emoticons").prop('checked', page_params.translate_emoticons);
     $("#night_mode").prop('checked', page_params.night_mode);
+    $("#twenty_four_hour_time").val(JSON.stringify(page_params.twenty_four_hour_time));
+
     // TODO: Set emojiset selector here.
     // Longer term, we'll want to automate this function
 };
 
-return exports;
-}());
-
-if (typeof module !== 'undefined') {
-    module.exports = settings_display;
-}
-window.settings_display = settings_display;
+window.settings_display = exports;

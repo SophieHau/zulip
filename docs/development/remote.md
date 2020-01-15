@@ -81,8 +81,7 @@ This will start up the Zulip server on port 9991. You can then
 navigate to `http://<REMOTE_IP>:9991` and you should see something like
 this screenshot of the Zulip development environment:
 
-![Image of Zulip development
-environment](../images/zulip-dev.png)
+![Image of Zulip development environment](../images/zulip-dev.png)
 
 The `--interface=''` option makes the Zulip development environment
 accessible from any IP address (in contrast with the much more secure
@@ -131,7 +130,7 @@ don't have a favorite, here are some suggestions:
 * [spacemacs](https://github.com/syl20bnr/spacemacs)
 * [sublime](https://www.sublimetext.com/)
 
-Next, follow our [Git and GitHub Guide](../git/index.html) to clone and configure
+Next, follow our [Git and GitHub Guide](../git/index.md) to clone and configure
 your fork of zulip on your local computer.
 
 Once you have cloned your code locally, you can get to work.
@@ -258,10 +257,10 @@ Next, read the following to learn more about developing for Zulip:
 * [Testing][rtd-testing]
 
 [install-direct]: ../development/setup-advanced.html#installing-directly-on-ubuntu-debian-centos-or-fedora
-[install-vagrant]: ../development/setup-vagrant.html
-[rtd-git-guide]: ../git/index.html
-[rtd-using-dev-env]: using.html
-[rtd-testing]: ../testing/testing.html
+[install-vagrant]: ../development/setup-vagrant.md
+[rtd-git-guide]: ../git/index.md
+[rtd-using-dev-env]: using.md
+[rtd-testing]: ../testing/testing.md
 [git-bash]: https://git-for-windows.github.io/
 [codeanywhere]: https://codeanywhere.com/
 [img-ca-settings]: ../images/codeanywhere-settings.png

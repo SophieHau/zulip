@@ -1,4 +1,3 @@
-
 import time
 import logging
 
@@ -236,7 +235,7 @@ def fix_pre_pointer(cursor: CursorObj, user_profile: UserProfile) -> None:
     )
 
 def fix(user_profile: UserProfile) -> None:
-    logger.info('\n---\nFixing %s:' % (user_profile.email,))
+    logger.info('\n---\nFixing %s:' % (user_profile.id,))
     with connection.cursor() as cursor:
         fix_unsubscribed(cursor, user_profile)
         fix_pre_pointer(cursor, user_profile)

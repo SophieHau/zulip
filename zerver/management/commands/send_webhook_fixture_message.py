@@ -1,14 +1,15 @@
 import os
-import ujson
-from typing import Union, Dict
+from typing import Dict, Optional, Union
 
+import ujson
 from django.conf import settings
 from django.core.management.base import CommandParser
 from django.test import Client
 
-from zerver.lib.management import ZulipBaseCommand, CommandError
+from zerver.lib.management import CommandError, ZulipBaseCommand
 from zerver.lib.webhooks.common import standardize_headers
 from zerver.models import get_realm
+
 
 class Command(ZulipBaseCommand):
     help = """
@@ -60,7 +61,7 @@ approach shown above.
                                'Note: all strings must be enclosed within "" instead of \'\''.format(ve))
         return standardize_headers(custom_headers_dict)
 
-    def handle(self, **options: str) -> None:
+    def handle(self, **options: Optional[str]) -> None:
         if options['fixture'] is None or options['url'] is None:
             self.print_help('./manage.py', 'send_webhook_fixture_message')
             raise CommandError

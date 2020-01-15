@@ -4,11 +4,11 @@ import os
 import subprocess
 import ujson
 
+from django.conf import settings
 from django.test import TestCase, override_settings
 from django.http import HttpResponse
 from typing import Any, Dict, List
 
-from zproject.settings import DEPLOY_ROOT
 from zerver.lib.integrations import INTEGRATIONS
 from zerver.lib.storage import static_path
 from zerver.lib.test_classes import ZulipTestCase
@@ -126,7 +126,7 @@ class DocPageTest(ZulipTestCase):
         self._test('/api/get-profile', 'takes no arguments')
         self._test('/api/add-subscriptions', 'authorization_errors_fatal')
         self._test('/api/create-user', 'zuliprc-admin')
-        self._test('/api/remove-subscriptions', 'not_subscribed')
+        self._test('/api/remove-subscriptions', 'not_removed')
         self._test('/team/', 'industry veterans')
         self._test('/history/', 'Cambridge, Massachusetts')
         # Test the i18n version of one of these pages.
@@ -206,17 +206,6 @@ class DocPageTest(ZulipTestCase):
         self._test(url, title, doc_html_str=True)
         self._test(url, description, doc_html_str=True)
 
-    def test_email_integration(self) -> None:
-        self._test('/integrations/doc-html/email',
-                   'support.abcd1234@testserver', doc_html_str=True)
-
-        with self.settings(EMAIL_GATEWAY_PATTERN=''):
-            result = self.get_doc('integrations/doc-html/email', subdomain='zulip')
-            self.assertNotIn('support.abcd1234@testserver', str(result.content))
-            # if EMAIL_GATEWAY_PATTERN is empty, the main /integrations page should
-            # be rendered instead
-            self._test('/integrations/', 'native integrations.')
-
     def test_doc_html_str_non_ajax_call(self) -> None:
         # We don't need to test all the pages for 404
         for integration in list(INTEGRATIONS.keys())[5]:
@@ -283,7 +272,7 @@ class HelpTest(ZulipTestCase):
 class IntegrationTest(TestCase):
     def test_check_if_every_integration_has_logo_that_exists(self) -> None:
         for integration in INTEGRATIONS.values():
-            self.assertTrue(os.path.isfile(DEPLOY_ROOT + integration.logo_url), integration.name)
+            self.assertTrue(os.path.isfile(settings.DEPLOY_ROOT + integration.logo_url), integration.name)
 
     def test_api_url_view_subdomains_base(self) -> None:
         context = dict()  # type: Dict[str, Any]
@@ -344,6 +333,7 @@ class AboutPageTest(ZulipTestCase):
         would not have the `static/generated/github-contributors.json` fixture
         file.
         """
+        super().setUp()
         # This block has unreliable test coverage due to the implicit
         # caching here, so we exclude it from coverage.
         if not os.path.exists(static_path('generated/github-contributors.json')):
@@ -422,6 +412,14 @@ class ConfigErrorTest(ZulipTestCase):
         self.assert_not_in_success_response(["social_auth_github_key"], result)
         self.assert_not_in_success_response(["zproject/dev_settings.py"], result)
         self.assert_not_in_success_response(["zproject/dev-secrets.conf"], result)
+
+    @override_settings(SOCIAL_AUTH_SAML_ENABLED_IDPS=None)
+    def test_saml_error(self) -> None:
+        result = self.client_get("/accounts/login/social/saml")
+        self.assertEqual(result.status_code, 302)
+        self.assertEqual(result.url, '/config-error/saml')
+        result = self.client_get(result.url)
+        self.assert_in_success_response(["SAML authentication"], result)
 
     def test_smtp_error(self) -> None:
         result = self.client_get("/config-error/smtp")

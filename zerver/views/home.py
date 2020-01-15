@@ -14,7 +14,6 @@ from zerver.forms import ToSForm
 from zerver.models import Message, UserProfile, \
     Realm, UserMessage, \
     PreregistrationUser, \
-    get_stream_recipient, \
     get_usermessage_by_message_id
 from zerver.lib.events import do_events_register
 from zerver.lib.actions import do_change_tos_version, \
@@ -22,7 +21,6 @@ from zerver.lib.actions import do_change_tos_version, \
 from zerver.lib.avatar import avatar_url
 from zerver.lib.i18n import get_language_list, get_language_name, \
     get_language_list_for_templates, get_language_translation_data
-from zerver.lib.json_encoder_for_html import JSONEncoderForHTML
 from zerver.lib.push_notifications import num_push_devices_for_user
 from zerver.lib.streams import access_stream_by_name
 from zerver.lib.subdomains import get_subdomain
@@ -60,7 +58,7 @@ def sent_time_in_epoch_seconds(user_message: Optional[UserMessage]) -> Optional[
         return None
     # We have USE_TZ = True, so our datetime objects are timezone-aware.
     # Return the epoch seconds in UTC.
-    return calendar.timegm(user_message.message.pub_date.utctimetuple())
+    return calendar.timegm(user_message.message.date_sent.utctimetuple())
 
 def get_bot_types(user_profile: UserProfile) -> List[Dict[str, object]]:
     bot_types = []
@@ -161,7 +159,7 @@ def home_real(request: HttpRequest) -> HttpResponse:
         latest_read = get_usermessage_by_message_id(user_profile, user_profile.pointer)
         if latest_read is None:
             # Don't completely fail if your saved pointer ID is invalid
-            logging.warning("%s has invalid pointer %s" % (user_profile.email, user_profile.pointer))
+            logging.warning("User %s has invalid pointer %s" % (user_profile.id, user_profile.pointer))
 
     # We pick a language for the user as follows:
     # * First priority is the language in the URL, for debugging.
@@ -227,7 +225,7 @@ def home_real(request: HttpRequest) -> HttpResponse:
 
     if narrow_stream is not None:
         # In narrow_stream context, initial pointer is just latest message
-        recipient = get_stream_recipient(narrow_stream.id)
+        recipient = narrow_stream.recipient
         try:
             initial_pointer = Message.objects.filter(recipient=recipient).order_by('id').reverse()[0].id
         except IndexError:
@@ -283,7 +281,7 @@ def home_real(request: HttpRequest) -> HttpResponse:
     response = render(request, 'zerver/app/index.html',
                       context={'user_profile': user_profile,
                                'emojiset': emojiset,
-                               'page_params': JSONEncoderForHTML().encode(page_params),
+                               'page_params': page_params,
                                'csp_nonce': csp_nonce,
                                'avatar_url': avatar_url(user_profile),
                                'show_debug':

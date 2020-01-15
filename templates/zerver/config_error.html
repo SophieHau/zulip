@@ -80,6 +80,31 @@
                         {% endif %}
                     {% endif %}
 
+                    {% if saml_error %}
+                        <p>
+                            SAML authentication is either not enabled or misconfigured. Have a look at
+                            our <a href="https://zulip.readthedocs.io/en/latest/production/authentication-methods.html#SAML">setup guide</a>.
+                        </p>
+                        {% if development_environment %}
+                        <p>
+                            See also
+                            the <a href="https://zulip.readthedocs.io/en/latest/development/authentication.html#saml">SAML
+                                    guide</a> for the development environment.
+                        </p>
+                        {% endif %}
+                    {% endif %}
+
+                    {% if remoteuser_error_backend_disabled %}
+                    <p>
+                        Authentication via the REMOTE_USER header is
+                        disabled in `/etc/zulip/settings.py`.
+                    </p>
+                    {% endif %}
+                    {% if remoteuser_error_remote_user_header_missing %}
+                    <p>
+                        The REMOTE_USER header is not set.
+                    </p>
+                    {% endif %}
                     <p>After making your changes, remember to restart
                     the Zulip server.</p>
                 </div>

@@ -1,7 +1,7 @@
-
 from django.contrib.auth.models import UserManager
 from django.utils.timezone import now as timezone_now
-from zerver.models import UserProfile, Recipient, Subscription, Realm, Stream
+from zerver.models import UserProfile, Recipient, Subscription, Realm, Stream, \
+    get_fake_email_domain
 from zerver.lib.upload import copy_avatar
 from zerver.lib.hotspots import copy_hotpots
 from zerver.lib.utils import generate_api_key
@@ -32,9 +32,8 @@ def copy_user_settings(source_profile: UserProfile, target_profile: UserProfile)
     copy_hotpots(source_profile, target_profile)
 
 def get_display_email_address(user_profile: UserProfile, realm: Realm) -> str:
-    if realm.email_address_visibility != Realm.EMAIL_ADDRESS_VISIBILITY_EVERYONE:
-        # TODO: realm.host isn't always a valid option here.
-        return "user%s@%s" % (user_profile.id, realm.host.split(':')[0])
+    if not user_profile.email_address_is_realm_public():
+        return "user%s@%s" % (user_profile.id, get_fake_email_domain())
     return user_profile.delivery_email
 
 # create_user_profile is based on Django's User.objects.create_user,
@@ -66,10 +65,9 @@ def create_user_profile(realm: Realm, email: str, password: Optional[str],
                                default_language=realm.default_language,
                                twenty_four_hour_time=realm.default_twenty_four_hour_time,
                                delivery_email=email)
-
     if bot_type or not active:
         password = None
-    if realm.email_address_visibility == Realm.EMAIL_ADDRESS_VISIBILITY_EVERYONE:
+    if user_profile.email_address_is_realm_public():
         # If emails are visible to everyone, we can set this here and save a DB query
         user_profile.email = get_display_email_address(user_profile, realm)
     user_profile.set_password(password)
@@ -92,8 +90,10 @@ def create_user(email: str, password: Optional[str], realm: Realm,
     user_profile = create_user_profile(realm, email, password, active, bot_type,
                                        full_name, short_name, bot_owner,
                                        is_mirror_dummy, tos_version, timezone)
-    user_profile.is_realm_admin = is_realm_admin
-    user_profile.is_guest = is_guest
+    if is_realm_admin:
+        user_profile.role = UserProfile.ROLE_REALM_ADMINISTRATOR
+    if is_guest:
+        user_profile.role = UserProfile.ROLE_GUEST
     user_profile.avatar_source = avatar_source
     user_profile.timezone = timezone
     user_profile.default_sending_stream = default_sending_stream
@@ -114,7 +114,7 @@ def create_user(email: str, password: Optional[str], realm: Realm,
     else:
         user_profile.save()
 
-    if realm.email_address_visibility != Realm.EMAIL_ADDRESS_VISIBILITY_EVERYONE:
+    if not user_profile.email_address_is_realm_public():
         # With restricted access to email addresses, we can't generate
         # the fake email addresses we use for display purposes without
         # a User ID, which isn't generated until the .save() above.
@@ -123,5 +123,8 @@ def create_user(email: str, password: Optional[str], realm: Realm,
 
     recipient = Recipient.objects.create(type_id=user_profile.id,
                                          type=Recipient.PERSONAL)
+    user_profile.recipient = recipient
+    user_profile.save(update_fields=["recipient"])
+
     Subscription.objects.create(user_profile=user_profile, recipient=recipient)
     return user_profile

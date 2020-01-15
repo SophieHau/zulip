@@ -1,16 +1,13 @@
-var Dict = require('./dict').Dict;
+const Dict = require('./dict').Dict;
+const FoldDict = require('./fold_dict').FoldDict;
 
-var user_groups = (function () {
-
-var exports = {};
-
-var user_group_name_dict;
-var user_group_by_id_dict;
+let user_group_name_dict;
+let user_group_by_id_dict;
 
 // We have an init() function so that our automated tests
 // can easily clear data.
 exports.init = function () {
-    user_group_name_dict = new Dict({fold_case: true});
+    user_group_name_dict = new FoldDict();
     user_group_by_id_dict = new Dict();
 };
 
@@ -40,7 +37,7 @@ exports.get_user_group_from_id = function (group_id, suppress_errors) {
 };
 
 exports.update = function (event) {
-    var group = exports.get_user_group_from_id(event.group_id);
+    const group = exports.get_user_group_from_id(event.group_id);
     if (event.data.name !== undefined) {
         group.name = event.data.name;
         user_group_name_dict.del(group.name);
@@ -64,7 +61,7 @@ exports.get_realm_user_groups = function () {
 };
 
 exports.is_member_of = function (user_group_id, user_id) {
-    var user_group = user_group_by_id_dict.get(user_group_id);
+    const user_group = user_group_by_id_dict.get(user_group_id);
     if (user_group === undefined) {
         blueslip.error("Could not find user group with ID " + user_group_id);
         return false;
@@ -73,14 +70,14 @@ exports.is_member_of = function (user_group_id, user_id) {
 };
 
 exports.add_members = function (user_group_id, user_ids) {
-    var user_group = user_group_by_id_dict.get(user_group_id);
+    const user_group = user_group_by_id_dict.get(user_group_id);
     _.each(user_ids, function (user_id) {
         user_group.members.set(user_id, true);
     });
 };
 
 exports.remove_members = function (user_group_id, user_ids) {
-    var user_group = user_group_by_id_dict.get(user_group_id);
+    const user_group = user_group_by_id_dict.get(user_group_id);
     _.each(user_ids, function (user_id) {
         user_group.members.del(user_id);
     });
@@ -98,10 +95,4 @@ exports.is_user_group = function (item) {
     return item.hasOwnProperty('members');
 };
 
-return exports;
-
-}());
-if (typeof module !== 'undefined') {
-    module.exports = user_groups;
-}
-window.user_groups = user_groups;
+window.user_groups = exports;

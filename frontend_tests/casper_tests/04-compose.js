@@ -1,4 +1,4 @@
-var common = require('../casper_lib/common.js').common;
+var common = require('../casper_lib/common.js');
 
 common.start_and_log_in();
 
@@ -143,7 +143,7 @@ casper.then(function () {
 casper.then(function () {
     casper.click('*[title="Narrow to your private messages with Cordelia Lear"]');
 });
-casper.waitUntilVisible('li[data-user-ids-string="3"].expanded_private_message.active-sub-filter', function () {
+casper.waitUntilVisible('li[data-user-ids-string="9"].expanded_private_message.active-sub-filter', function () {
     casper.page.sendEvent('keypress', 'c');
 });
 

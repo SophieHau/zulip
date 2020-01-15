@@ -6,18 +6,20 @@ from django.conf import settings
 from django.core.management.base import CommandError
 
 from zerver.lib.management import ZulipBaseCommand
-from zerver.lib.soft_deactivation import do_soft_activate_users, \
-    do_soft_deactivate_users, do_auto_soft_deactivate_users, logger
+from zerver.lib.soft_deactivation import do_auto_soft_deactivate_users, \
+    do_soft_activate_users, do_soft_deactivate_users, logger
 from zerver.models import Realm, UserProfile
 
-def get_users_from_emails(emails: Any,
-                          filter_kwargs: Any) -> List[UserProfile]:
+
+def get_users_from_emails(emails: List[str],
+                          filter_kwargs: Dict[str, Realm]) -> List[UserProfile]:
+    # Bug: Ideally, this would be case-insensitive like our other email queries.
     users = UserProfile.objects.filter(
-        email__in=emails,
+        delivery_email__in=emails,
         **filter_kwargs)
 
     if len(users) != len(emails):
-        user_emails_found = {user.email for user in users}
+        user_emails_found = {user.delivery_email for user in users}
         user_emails_not_found = '\n'.join(set(emails) - user_emails_found)
         raise CommandError('Users with the following emails were not found:\n\n%s\n\n'
                            'Check if they are correct.' % (user_emails_not_found,))
@@ -45,13 +47,13 @@ class Command(ZulipBaseCommand):
         parser.add_argument('users', metavar='<users>', type=str, nargs='*', default=[],
                             help="A list of user emails to soft activate/deactivate.")
 
-    def handle(self, *args: Any, **options: str) -> None:
+    def handle(self, *args: Any, **options: Any) -> None:
         if settings.STAGING:
             print('This is a Staging server. Suppressing management command.')
             sys.exit(0)
 
         realm = self.get_realm(options)
-        user_emails = options['users']  # type: ignore  # mypy thinks this is a str, not List[str] #
+        user_emails = options['users']
         activate = options['activate']
         deactivate = options['deactivate']
 

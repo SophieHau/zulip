@@ -1,4 +1,3 @@
-
 """
 Forward messages sent to the configured email gateway to Zulip.
 
@@ -20,8 +19,6 @@ We extract and validate the target stream from information in the
 recipient address and retrieve, forward, and archive the message.
 
 """
-
-
 import email
 import logging
 from email.message import Message
@@ -51,13 +48,13 @@ def get_imap_messages() -> Generator[Message, None, None]:
     try:
         mbox.select(settings.EMAIL_GATEWAY_IMAP_FOLDER)
         try:
-            status, num_ids_data = mbox.search(None, 'ALL')  # type: ignore # https://github.com/python/typeshed/pull/1762
-            for msgid in num_ids_data[0].split():
-                status, msg_data = mbox.fetch(msgid, '(RFC822)')
+            status, num_ids_data = mbox.search(None, 'ALL')
+            for message_id in num_ids_data[0].split():
+                status, msg_data = mbox.fetch(message_id, '(RFC822)')
                 msg_as_bytes = msg_data[0][1]
                 message = email.message_from_bytes(msg_as_bytes)
                 yield message
-                mbox.store(msgid, '+FLAGS', '\\Deleted')
+                mbox.store(message_id, '+FLAGS', '\\Deleted')
             mbox.expunge()
         finally:
             mbox.close()

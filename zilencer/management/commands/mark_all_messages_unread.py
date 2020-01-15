@@ -1,4 +1,3 @@
-
 from typing import Any
 
 from django.conf import settings
@@ -7,6 +6,7 @@ from django.core.management.base import BaseCommand
 from django.db.models import F
 
 from zerver.models import UserMessage, UserProfile
+
 
 class Command(BaseCommand):
     help = """Script to mark all messages as unread."""

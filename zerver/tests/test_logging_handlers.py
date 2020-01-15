@@ -10,9 +10,9 @@ from django.test import TestCase
 from django.utils.log import AdminEmailHandler
 from functools import wraps
 from mock import MagicMock, patch
-from mypy_extensions import NoReturn
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type
 from types import TracebackType
+from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type
+from typing_extensions import NoReturn
 
 from zerver.lib.types import ViewFuncT
 from zerver.lib.test_classes import ZulipTestCase
@@ -39,6 +39,7 @@ class AdminNotifyHandlerTest(ZulipTestCase):
     logger = logging.getLogger('django')
 
     def setUp(self) -> None:
+        super().setUp()
         self.handler = AdminNotifyHandler()
         # Prevent the exceptions we're going to raise from being printed
         # You may want to disable this when debugging tests
@@ -51,6 +52,7 @@ class AdminNotifyHandlerTest(ZulipTestCase):
 
     def tearDown(self) -> None:
         settings.LOGGING_ENABLED = True
+        super().tearDown()
 
     def get_admin_zulip_handler(self) -> AdminNotifyHandler:
         return [
@@ -208,3 +210,14 @@ class ErrorFiltersTest(TestCase):
                          "api_key=******&stream=******")
         self.assertEqual(clean_data_from_query_parameters("api_key=abcdz&stream=foo&topic=bar"),
                          "api_key=******&stream=******&topic=******")
+
+class RateLimitFilterTest(ZulipTestCase):
+    def test_recursive_filter_handling(self) -> None:
+        def mocked_cache_get(key: str) -> int:
+            logging.error("Log an error to trigger recursive filter() calls in _RateLimitFilter.")
+            raise Exception
+
+        with patch("zerver.lib.logging_util.cache.get", side_effect=mocked_cache_get) as m:
+            logging.error("Log an error to trigger initial _RateLimitFilter.filter() call.")
+            # cache.get should have only been called once, by the original filter() call:
+            m.assert_called_once()

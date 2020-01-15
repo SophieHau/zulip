@@ -1,6 +1,4 @@
-var autosize = require('autosize');
-
-var composebox_typeahead = (function () {
+const autosize = require('autosize');
 
 //************************************
 // AN IMPORTANT NOTE ABOUT TYPEAHEADS
@@ -13,7 +11,9 @@ var composebox_typeahead = (function () {
 // highlighter that escapes (i.e. one that calls
 // typeahead_helper.highlight_with_escaping).
 
-var exports = {};
+// This is what we use for PM/compose typeaheads.
+// We export it to allow tests to mock it.
+exports.max_num_items = 5;
 
 exports.emoji_collection = [];
 
@@ -38,27 +38,41 @@ exports.update_emoji_data = function () {
 };
 
 exports.topics_seen_for = function (stream_name) {
-    var stream_id = stream_data.get_stream_id(stream_name);
+    const stream_id = stream_data.get_stream_id(stream_name);
     if (!stream_id) {
         return [];
     }
-    var topic_names = topic_data.get_recent_names(stream_id);
+    const topic_names = topic_data.get_recent_names(stream_id);
     return topic_names;
 };
 
-function query_matches_language(query, lang) {
+function get_language_matcher(query) {
     query = query.toLowerCase();
-    return lang.indexOf(query) !== -1;
+    return function (lang) {
+        return lang.indexOf(query) !== -1;
+    };
 }
 
-function query_matches_string(query, source_str, split_char) {
-    source_str = people.remove_diacritics(source_str);
+function clean_query(query) {
     query = people.remove_diacritics(query);
     // When `abc ` with a space at the end is typed in a
     // contenteditable widget such as the composebox PM section, the
     // space at the end was a `no break-space (U+00A0)` instead of
     // `space (U+0020)`, which lead to no matches in those cases.
     query = query.replace(/\u00A0/g, String.fromCharCode(32));
+
+    return query;
+}
+
+exports.clean_query_lowercase = function (query) {
+    query = query.toLowerCase();
+    query = clean_query(query);
+    return query;
+};
+
+function query_matches_string(query, source_str, split_char) {
+    source_str = people.remove_diacritics(source_str);
+
     // If query doesn't contain a separator, we just want an exact
     // match where query is a substring of one of the target characters.
     if (query.indexOf(split_char) > 0) {
@@ -66,9 +80,9 @@ function query_matches_string(query, source_str, split_char) {
         // require a perfect prefix match (e.g. for 'ab cd ef',
         // query needs to be e.g. 'ab c', not 'cd ef' or 'b cd
         // ef', etc.).
-        var queries = query.split(split_char);
-        var sources = source_str.split(split_char);
-        var i;
+        const queries = query.split(split_char);
+        const sources = source_str.split(split_char);
+        let i;
 
         for (i = 0; i < queries.length - 1; i += 1) {
             if (sources[i] !== queries[i]) {
@@ -98,62 +112,68 @@ function query_matches_string(query, source_str, split_char) {
 // * split_char is the separator for this syntax (e.g. ' ').
 function query_matches_source_attrs(query, source, match_attrs, split_char) {
     return _.any(match_attrs, function (attr) {
-        var source_str = source[attr].toLowerCase();
+        const source_str = source[attr].toLowerCase();
         return query_matches_string(query, source_str, split_char);
     });
 }
 
-function query_matches_person(query, person) {
-    // Case-insensitive.
-    query = query.toLowerCase();
+exports.query_matches_person = function (query, person) {
     return query_matches_source_attrs(query, person, ["full_name", "email"], " ");
-}
+};
 
-function query_matches_user_group_or_stream(query, user_group_or_stream) {
-    // Case-insensitive.
-    query = query.toLowerCase();
+function query_matches_name_description(query, user_group_or_stream) {
     return query_matches_source_attrs(query, user_group_or_stream, ["name", "description"], " ");
 }
 
-function query_matches_person_or_user_group(query, item) {
-    if (user_groups.is_user_group(item)) {
-        return query_matches_user_group_or_stream(query, item);
-    }
+function get_stream_or_user_group_matcher(query) {
+    // Case-insensitive.
+    query = exports.clean_query_lowercase(query);
 
-    return query_matches_person(query, item);
-}
-
-function query_matches_slash_commmand(query, item) {
-    query = query.toLowerCase();
-    return query_matches_source_attrs(query, item, ["name"], " ");
-}
-
-// Case-insensitive
-function query_matches_emoji(query, emoji) {
-    // replaces spaces with underscores
-    query = query.toLowerCase();
-    query = query.split(" ").join("_");
-    return query_matches_source_attrs(query, emoji, ["emoji_name"], "_");
-}
-
-function query_matches_topic(query, topic) {
-    var obj = {
-        topic: topic,
+    return function (user_group_or_stream) {
+        return query_matches_name_description(query, user_group_or_stream);
     };
-    query = query.toLowerCase();
-    return query_matches_source_attrs(query, obj, ['topic'], ' ');
+}
+
+function get_slash_matcher(query) {
+    query = exports.clean_query_lowercase(query);
+
+    return function (item) {
+        return query_matches_source_attrs(query, item, ["name"], " ");
+    };
+}
+
+function get_emoji_matcher(query) {
+    // replaces spaces with underscores for emoji matching
+    query = query.split(" ").join("_");
+    query = exports.clean_query_lowercase(query);
+
+    return function (emoji) {
+        return query_matches_source_attrs(query, emoji, ["emoji_name"], "_");
+    };
+}
+
+function get_topic_matcher(query) {
+    query = exports.clean_query_lowercase(query);
+
+    return function (topic) {
+        const obj = {
+            topic: topic,
+        };
+
+        return query_matches_source_attrs(query, obj, ['topic'], ' ');
+    };
 }
 
 // nextFocus is set on a keydown event to indicate where we should focus on keyup.
 // We can't focus at the time of keydown because we need to wait for typeahead.
 // And we can't compute where to focus at the time of keyup because only the keydown
 // has reliable information about whether it was a tab or a shift+tab.
-var nextFocus = false;
+let nextFocus = false;
 
 exports.should_enter_send = function (e) {
-    var has_non_shift_modifier_key = e.ctrlKey || e.metaKey || e.altKey;
-    var has_modifier_key = e.shiftKey || has_non_shift_modifier_key;
-    var this_enter_sends;
+    const has_non_shift_modifier_key = e.ctrlKey || e.metaKey || e.altKey;
+    const has_modifier_key = e.shiftKey || has_non_shift_modifier_key;
+    let this_enter_sends;
     if (page_params.enter_sends) {
         // With the enter_sends setting, we should send
         // the message unless the user was holding a
@@ -185,13 +205,13 @@ exports.handle_enter = function (textarea, e) {
     // the browser behavior for "enter" in those cases.
     //
     // We do this using caret and range from jquery-caret.
-    var has_non_shift_modifier_key = e.ctrlKey || e.metaKey || e.altKey;
+    const has_non_shift_modifier_key = e.ctrlKey || e.metaKey || e.altKey;
     if (has_non_shift_modifier_key) {
 
         // To properly emulate browser "enter", if the
         // user had selected something in the textarea,
         // we need those characters to be cleared.
-        var range = textarea.range();
+        const range = textarea.range();
         if (range.length > 0) {
             textarea.range(range.start, range.end).range('');
         }
@@ -207,19 +227,19 @@ exports.handle_enter = function (textarea, e) {
 };
 
 function handle_keydown(e) {
-    var code = e.keyCode || e.which;
+    const code = e.keyCode || e.which;
 
     if (code === 13 || code === 9 && !e.shiftKey) { // Enter key or tab key
-        var target_sel;
+        let target_sel;
 
         if (e.target.id) {
             target_sel = '#' + e.target.id;
         }
 
-        var on_stream = target_sel === "#stream_message_recipient_stream";
-        var on_topic = target_sel  === "#stream_message_recipient_topic";
-        var on_pm = target_sel === "#private_message_recipient";
-        var on_compose = target_sel === '#compose-textarea';
+        const on_stream = target_sel === "#stream_message_recipient_stream";
+        const on_topic = target_sel  === "#stream_message_recipient_topic";
+        const on_pm = target_sel === "#private_message_recipient";
+        const on_compose = target_sel === '#compose-textarea';
 
         if (on_stream || on_topic || on_pm) {
             // For enter, prevent the form from submitting
@@ -285,7 +305,7 @@ function handle_keydown(e) {
 }
 
 function handle_keyup(e) {
-    var code = e.keyCode || e.which;
+    const code = e.keyCode || e.which;
     if (code === 13 || code === 9 && !e.shiftKey) { // Enter key or tab key
         if (nextFocus) {
             $(nextFocus).focus();
@@ -299,7 +319,7 @@ function select_on_focus(field_id) {
     // A select event appears to trigger a focus event under certain
     // conditions in Chrome so we need to protect against infinite
     // recursion.
-    var in_handler = false;
+    let in_handler = false;
     $("#" + field_id).focus(function () {
         if (in_handler) {
             return;
@@ -313,7 +333,7 @@ function select_on_focus(field_id) {
 }
 
 exports.split_at_cursor = function (query, input) {
-    var cursor = input.caret();
+    const cursor = input.caret();
     return [query.slice(0, cursor), query.slice(cursor)];
 };
 
@@ -324,9 +344,9 @@ exports.tokenize_compose_str = function (s) {
     // punctuation before the token, unless it's at the
     // beginning of the line.  It doesn't matter what comes
     // after the first character.
-    var i = s.length;
+    let i = s.length;
 
-    var min_i = s.length - 25;
+    let min_i = s.length - 25;
     if (min_i < 0) {
         min_i = 0;
     }
@@ -377,28 +397,21 @@ exports.tokenize_compose_str = function (s) {
     return '';
 };
 
-function get_mention_candidates_data(is_silent) {
-    var all_items = [];
-    var groups = [];
-
-    if (!is_silent) {
-        all_items = _.map(['all', 'everyone', 'stream'], function (mention) {
-            return {
-                special_item_text: i18n.t("__wildcard_mention_token__ (Notify stream)",
-                                          {wildcard_mention_token: mention}),
-                email: mention,
-                // Always sort above, under the assumption that names will
-                // be longer and only contain "all" as a substring.
-                pm_recipient_count: Infinity,
-                full_name: mention,
-            };
-        });
-        groups = user_groups.get_realm_user_groups();
-    }
-
-    var persons = people.get_realm_persons();
-    return [].concat(persons, all_items, groups);
-}
+exports.broadcast_mentions = function () {
+    return _.map(['all', 'everyone', 'stream'], function (mention, idx) {
+        return {
+            special_item_text: i18n.t("__wildcard_mention_token__ (Notify stream)",
+                                      {wildcard_mention_token: mention}),
+            email: mention,
+            // Always sort above, under the assumption that names will
+            // be longer and only contain "all" as a substring.
+            pm_recipient_count: Infinity,
+            full_name: mention,
+            is_broadcast: true,
+            idx: idx, // used for sorting
+        };
+    });
+};
 
 function filter_mention_name(current_token) {
     if (current_token.startsWith('**')) {
@@ -423,7 +436,7 @@ function should_show_custom_query(query, items) {
     if (!query) {
         return false;
     }
-    var matched = _.reduce(items, function (matched, elem) {
+    const matched = _.reduce(items, function (matched, elem) {
         if (elem.toLowerCase() === query.toLowerCase()) {
             return true;
         }
@@ -443,13 +456,134 @@ exports.slash_commands = [
     },
 ];
 
-exports.compose_content_begins_typeahead = function (query) {
-    var split = exports.split_at_cursor(query, this.$element);
-    var current_token = exports.tokenize_compose_str(split[0]);
+exports.filter_and_sort_mentions = function (is_silent, query) {
+    const opts = {
+        want_broadcast: !is_silent,
+        want_groups: !is_silent,
+        filter_pills: false,
+    };
+    return exports.get_person_suggestions(query, opts);
+};
+
+exports.get_pm_people = function (query) {
+    const opts = {
+        want_broadcast: false,
+        want_groups: true,
+        filter_pills: true,
+    };
+    return exports.get_person_suggestions(query, opts);
+};
+
+exports.get_person_suggestions = function (query, opts) {
+    query = exports.clean_query_lowercase(query);
+
+    const person_matcher = (item) => {
+        return exports.query_matches_person(query, item);
+    };
+
+    const group_matcher = (item) => {
+        return query_matches_name_description(query, item);
+    };
+
+    const all_persons = people.get_realm_persons();
+    let persons;
+
+    if (opts.filter_pills) {
+        persons = compose_pm_pill.filter_taken_users(all_persons);
+    } else {
+        persons = all_persons;
+    }
+
+    if (opts.want_broadcast) {
+        persons = persons.concat(exports.broadcast_mentions());
+    }
+
+    const filtered_persons = _.filter(persons, person_matcher);
+
+    let groups;
+
+    if (opts.want_groups) {
+        groups = user_groups.get_realm_user_groups();
+    } else {
+        groups = [];
+    }
+
+    const filtered_groups = _.filter(groups, group_matcher);
+
+    return typeahead_helper.sort_recipients(
+        filtered_persons,
+        query,
+        compose_state.stream_name(),
+        compose_state.topic(),
+        filtered_groups,
+        exports.max_num_items
+    );
+};
+
+exports.get_sorted_filtered_items = function (query) {
+    /*
+        This is just a "glue" function to work
+        around bootstrap.  We want to control these
+        three steps ourselves:
+
+            - get data
+            - filter data
+            - sort data
+
+        If we do it ourselves, we can convert some
+        O(N) behavior to just O(1) time.
+
+        For example, we want to avoid dispatching
+        on completing every time through the loop, plus
+        doing the same token cleanup every time.
+
+        It's also a bit easier to debug typeahead when
+        it's all one step, instead of three callbacks.
+
+        (We did the same thing for search suggestions
+        several years ago.)
+    */
+
+    const hacky_this = this;
+    const fetcher = exports.get_candidates.bind(hacky_this);
+    const big_results = fetcher(query);
+
+    if (!big_results) {
+        return false;
+    }
+
+    // We are still hacking info onto the "this" from
+    // bootstrap.  Yuck.
+    const completing = hacky_this.completing;
+    const token = hacky_this.token;
+
+    if (completing === 'mention' || completing === 'silent_mention') {
+        return exports.filter_and_sort_mentions(
+            big_results.is_silent, token);
+    }
+
+    return exports.filter_and_sort_candidates(completing, big_results, token);
+};
+
+exports.filter_and_sort_candidates = function (completing, candidates, token) {
+    const matcher = exports.compose_content_matcher(completing, token);
+
+    const small_results = _.filter(candidates, function (item) {
+        return matcher(item);
+    });
+
+    const sorted_results = exports.sort_results(completing, small_results, token);
+
+    return sorted_results;
+};
+
+exports.get_candidates = function (query) {
+    const split = exports.split_at_cursor(query, this.$element);
+    let current_token = exports.tokenize_compose_str(split[0]);
     if (current_token === '') {
         return false;
     }
-    var rest = split[1];
+    const rest = split[1];
 
     // If the remaining content after the mention isn't a space or
     // punctuation (or end of the message), don't try to typeahead; we
@@ -457,13 +591,13 @@ exports.compose_content_begins_typeahead = function (query) {
     // already-completed object.
 
     // We will likely want to extend this list to be more i18n-friendly.
-    var terminal_symbols = ',.;?!()[] "\'\n\t';
+    const terminal_symbols = ',.;?!()[] "\'\n\t';
     if (rest !== '' && terminal_symbols.indexOf(rest[0]) === -1) {
         return false;
     }
 
     // Start syntax highlighting autocompleter if the first three characters are ```
-    var syntax_token = current_token.substring(0, 3);
+    const syntax_token = current_token.substring(0, 3);
     if (this.options.completions.syntax && (syntax_token === '```' || syntax_token === "~~~")) {
         // Only autocomplete if user starts typing a language after ```
         if (current_token.length === 3) {
@@ -508,7 +642,7 @@ exports.compose_content_begins_typeahead = function (query) {
         current_token = current_token.substring(1);
         this.completing = 'mention';
         // Silent mentions
-        var is_silent = false;
+        let is_silent = false;
         if (current_token.startsWith('_')) {
             this.completing = 'silent_mention';
             is_silent = true;
@@ -520,11 +654,11 @@ exports.compose_content_begins_typeahead = function (query) {
             return false;
         }
         this.token = current_token;
-        return get_mention_candidates_data(is_silent);
+        return {is_silent: is_silent};
     }
 
     function get_slash_commands_data() {
-        var commands = exports.slash_commands;
+        const commands = exports.slash_commands;
         return commands;
     }
 
@@ -559,8 +693,8 @@ exports.compose_content_begins_typeahead = function (query) {
     if (this.options.completions.topic) {
         // Stream regex modified from marked.js
         // Matches '#**stream name** >' at the end of a split.
-        var stream_regex =  /#\*\*([^\*>]+)\*\*\s?>$/;
-        var should_jump_inside_typeahead = stream_regex.test(split[0]);
+        const stream_regex =  /#\*\*([^\*>]+)\*\*\s?>$/;
+        const should_jump_inside_typeahead = stream_regex.test(split[0]);
         if (should_jump_inside_typeahead) {
             this.completing = 'topic_jump';
             this.token = '>';
@@ -569,15 +703,15 @@ exports.compose_content_begins_typeahead = function (query) {
         }
 
         // Matches '#**stream name>some text' at the end of a split.
-        var stream_topic_regex = /#\*\*([^\*>]+)>([^\*]*)$/;
-        var should_begin_typeahead = stream_topic_regex.test(split[0]);
+        const stream_topic_regex = /#\*\*([^\*>]+)>([^\*]*)$/;
+        const should_begin_typeahead = stream_topic_regex.test(split[0]);
         if (should_begin_typeahead) {
             this.completing = 'topic_list';
-            var tokens = stream_topic_regex.exec(split[0]);
+            const tokens = stream_topic_regex.exec(split[0]);
             if (tokens[1]) {
-                var stream_name = tokens[1];
+                const stream_name = tokens[1];
                 this.token = tokens[2] || '';
-                var topic_list = exports.topics_seen_for(stream_name);
+                const topic_list = exports.topics_seen_for(stream_name);
                 if (should_show_custom_query(this.token, topic_list)) {
                     topic_list.push(this.token);
                 }
@@ -609,10 +743,10 @@ exports.content_highlighter = function (item) {
 };
 
 exports.content_typeahead_selected = function (item, event) {
-    var pieces = exports.split_at_cursor(this.query, this.$element);
-    var beginning = pieces[0];
-    var rest = pieces[1];
-    var textbox = this.$element;
+    const pieces = exports.split_at_cursor(this.query, this.$element);
+    let beginning = pieces[0];
+    let rest = pieces[1];
+    const textbox = this.$element;
 
     if (this.completing === 'emoji') {
         // leading and trailing spaces are required for emoji,
@@ -625,7 +759,7 @@ exports.content_typeahead_selected = function (item, event) {
             beginning = beginning.substring(0, beginning.length - this.token.length - 1) + " :" + item.emoji_name + ": ";
         }
     } else if (this.completing === 'mention' || this.completing === 'silent_mention') {
-        var is_silent = this.completing === 'silent_mention';
+        const is_silent = this.completing === 'silent_mention';
         beginning = beginning.substring(0, beginning.length - this.token.length - 1);
         if (beginning.endsWith('@_*')) {
             beginning = beginning.substring(0, beginning.length - 3);
@@ -636,11 +770,17 @@ exports.content_typeahead_selected = function (item, event) {
         }
         if (user_groups.is_user_group(item)) {
             beginning += '@*' + item.name + '* ';
-            $(document).trigger('usermention_completed.zulip', {user_group: item});
+            // We could theoretically warn folks if they are
+            // mentioning a user group that literally has zero
+            // members where we are posting to, but we don't have
+            // that functionality yet, and we haven't gotten much
+            // feedback on this being an actual pitfall.
         } else {
-            var mention_text = people.get_mention_syntax(item.full_name, item.user_id, is_silent);
+            const mention_text = people.get_mention_syntax(item.full_name, item.user_id, is_silent);
             beginning += mention_text + ' ';
-            $(document).trigger('usermention_completed.zulip', {mentioned: item, is_silent: is_silent});
+            if (!is_silent) {
+                compose.warn_if_mentioning_unsubscribed_user(item);
+            }
         }
     } else if (this.completing === 'slash') {
         beginning = beginning.substring(0, beginning.length - this.token.length - 1) + "/" + item.name + " ";
@@ -658,11 +798,11 @@ exports.content_typeahead_selected = function (item, event) {
         } else {
             beginning += '** ';
         }
-        $(document).trigger('streamname_completed.zulip', {stream: item});
+        compose.warn_if_private_stream_is_linked(item);
     } else if (this.completing === 'syntax') {
         // Isolate the end index of the triple backticks/tildes, including
         // possibly a space afterward
-        var backticks = beginning.length - this.token.length;
+        const backticks = beginning.length - this.token.length;
         if (rest === '') {
             // If cursor is at end of input ("rest" is empty), then
             // complete the token before the cursor, and add a closing fence
@@ -678,65 +818,65 @@ exports.content_typeahead_selected = function (item, event) {
         // Put the cursor at the end of immediately preceeding stream mention syntax,
         // just before where the `**` at the end of the syntax.  This will delete that
         // final ** and set things up for the topic_list typeahead.
-        var index = beginning.lastIndexOf('**');
+        const index = beginning.lastIndexOf('**');
         if (index !== -1) {
             beginning = beginning.substring(0, index) + '>';
         }
     } else if (this.completing === 'topic_list') {
         // Stream + topic mention typeahead; close the stream+topic mention syntax
         // with the topic and the final **.
-        var start = beginning.length - this.token.length;
+        const start = beginning.length - this.token.length;
         beginning = beginning.substring(0, start) + item + '** ';
     }
 
-    // Keep the cursor after the newly inserted text.  Because Bootstrap's default
-    // textbox.change() handler will end up jumping the cursor to the end of the
-    // textbox, we overwrite it with a custom version that puts the cursor at the
-    // end of the completion.
-    this.$element.off('change').on('change', function () {
+    // Keep the cursor after the newly inserted text, as Bootstrap will call textbox.change() to
+    // overwrite the text in the textbox.
+    setTimeout(function () {
         textbox.caret(beginning.length, beginning.length);
         // Also, trigger autosize to check if compose box needs to be resized.
         compose_ui.autosize_textarea();
-    });
-
+    }, 0);
     return beginning + rest;
 };
 
-exports.compose_content_matcher = function (item) {
-    if (this.completing === 'emoji') {
-        return query_matches_emoji(this.token, item);
-    } else if (this.completing === 'mention' || this.completing === 'silent_mention') {
-        return query_matches_person_or_user_group(this.token, item);
-    } else if (this.completing === 'slash') {
-        return query_matches_slash_commmand(this.token, item);
-    } else if (this.completing === 'stream') {
-        return query_matches_user_group_or_stream(this.token, item);
-    } else if (this.completing === 'syntax') {
-        return query_matches_language(this.token, item);
-    } else if (this.completing === 'topic_jump') {
-        // topic_jump doesn't actually have a typeahead popover, so we return quickly here.
-        return true;
-    } else if (this.completing === 'topic_list') {
-        return query_matches_topic(this.token, item);
+exports.compose_content_matcher = function (completing, token) {
+    switch (completing) {
+    case 'emoji':
+        return get_emoji_matcher(token);
+    case 'slash':
+        return get_slash_matcher(token);
+    case 'stream':
+        return get_stream_or_user_group_matcher(token);
+    case 'syntax':
+        return get_language_matcher(token);
+    case 'topic_list':
+        return get_topic_matcher(token);
     }
+
+    return function () {
+        switch (completing) {
+        case 'topic_jump':
+            // topic_jump doesn't actually have a typeahead popover, so we return quickly here.
+            return true;
+        }
+    };
 };
 
-exports.compose_matches_sorter = function (matches) {
-    if (this.completing === 'emoji') {
-        return typeahead_helper.sort_emojis(matches, this.token);
-    } else if (this.completing === 'mention' || this.completing === 'silent_mention') {
-        return typeahead_helper.sort_people_and_user_groups(this.token, matches);
-    } else if (this.completing === 'slash') {
-        return typeahead_helper.sort_slash_commands(matches, this.token);
-    } else if (this.completing === 'stream') {
-        return typeahead_helper.sort_streams(matches, this.token);
-    } else if (this.completing === 'syntax') {
-        return typeahead_helper.sort_languages(matches, this.token);
-    } else if (this.completing === 'topic_jump') {
+exports.sort_results = function (completing, matches, token) {
+    switch (completing) {
+    case 'emoji':
+        return typeahead_helper.sort_emojis(matches, token);
+    case 'slash':
+        return typeahead_helper.sort_slash_commands(matches, token);
+    case 'stream':
+        return typeahead_helper.sort_streams(matches, token);
+    case 'syntax':
+        return typeahead_helper.sort_languages(matches, token);
+    case 'topic_jump':
         // topic_jump doesn't actually have a typeahead popover, so we return quickly here.
         return matches;
-    } else if (this.completing === 'topic_list') {
-        return typeahead_helper.sorter(this.token, matches, function (x) {return x;});
+    case 'topic_list':
+        return typeahead_helper.sorter(token, matches, function (x) {return x;});
     }
 };
 
@@ -757,8 +897,20 @@ exports.compose_trigger_selection = function (event) {
     return false;
 };
 
+function get_header_text() {
+    let tip_text = '';
+    switch (this.completing) {
+    case 'stream':
+        tip_text = i18n.t('Press > for list of topics');
+        break;
+    default:
+        return false;
+    }
+    return '<em>' + tip_text + '</em>';
+}
+
 exports.initialize_compose_typeahead = function (selector) {
-    var completions = {
+    const completions = {
         mention: true,
         emoji: true,
         silent_mention: true,
@@ -769,18 +921,27 @@ exports.initialize_compose_typeahead = function (selector) {
     };
 
     $(selector).typeahead({
-        items: 5,
+        items: exports.max_num_items,
         dropup: true,
         fixed: true,
-        source: exports.compose_content_begins_typeahead,
+        // Performance note: We have trivial matcher/sorters to do
+        // matching and sorting inside the `source` field to avoid
+        // O(n) behavior in the number of users in the organization
+        // inside the typeahead library.
+        source: exports.get_sorted_filtered_items,
         highlighter: exports.content_highlighter,
-        matcher: exports.compose_content_matcher,
-        sorter: exports.compose_matches_sorter,
+        matcher: function () {
+            return true;
+        },
+        sorter: function (items) {
+            return items;
+        },
         updater: exports.content_typeahead_selected,
         stopAdvance: true, // Do not advance to the next field on a tab or enter
         completions: completions,
         automated: exports.compose_automated_selection,
         trigger_selection: exports.compose_trigger_selection,
+        header: get_header_text,
     });
 };
 
@@ -795,7 +956,7 @@ exports.initialize = function () {
     $("form#send_message_form").keyup(handle_keyup);
 
     $("#enter_sends").click(function () {
-        var send_button = $("#compose-send-button");
+        const send_button = $("#compose-send-button");
         page_params.enter_sends = $("#enter_sends").is(":checked");
         if (page_params.enter_sends) {
             send_button.fadeOut();
@@ -831,14 +992,14 @@ exports.initialize = function () {
         matcher: function (item) {
             // The matcher for "stream" is strictly prefix-based,
             // because we want to avoid mixing up streams.
-            var q = this.query.trim().toLowerCase();
+            const q = this.query.trim().toLowerCase();
             return item.toLowerCase().indexOf(q) === 0;
         },
     });
 
     $("#stream_message_recipient_topic").typeahead({
         source: function () {
-            var stream_name = compose_state.stream_name();
+            const stream_name = compose_state.stream_name();
             return exports.topics_seen_for(stream_name);
         },
         items: 3,
@@ -847,7 +1008,7 @@ exports.initialize = function () {
             return typeahead_helper.render_typeahead_item({ primary: item });
         },
         sorter: function (items) {
-            var sorted = typeahead_helper.sorter(this.query, items, function (x) {return x;});
+            const sorted = typeahead_helper.sorter(this.query, items, function (x) {return x;});
             if (sorted.length > 0 && sorted.indexOf(this.query) === -1) {
                 sorted.unshift(this.query);
             }
@@ -856,22 +1017,18 @@ exports.initialize = function () {
     });
 
     $("#private_message_recipient").typeahead({
-        source: function () {
-            var people = compose_pm_pill.get_typeahead_items();
-            var groups = user_groups.get_realm_user_groups();
-            return people.concat(groups);
-        },
-        items: 5,
+        source: exports.get_pm_people,
+        items: exports.max_num_items,
         dropup: true,
         fixed: true,
         highlighter: function (item) {
             return typeahead_helper.render_person_or_user_group(item);
         },
-        matcher: function (item) {
-            return query_matches_person_or_user_group(this.query, item);
+        matcher: function () {
+            return true;
         },
-        sorter: function (matches) {
-            return typeahead_helper.sort_people_and_user_groups(this.query, matches);
+        sorter: function (items) {
+            return items;
         },
         updater: function (item) {
             if (user_groups.is_user_group(item)) {
@@ -880,14 +1037,14 @@ exports.initialize = function () {
                         return people.get_person_from_user_id(user_id);
                     }).filter(function (user) {
                         // filter out inserted users and current user from pill insertion
-                        var inserted_users = user_pill.get_user_ids(compose_pm_pill.widget);
-                        var current_user = people.is_current_user(user.email);
+                        const inserted_users = user_pill.get_user_ids(compose_pm_pill.widget);
+                        const current_user = people.is_current_user(user.email);
                         return inserted_users.indexOf(user.user_id) === -1 && !current_user;
                     }).each(function (user) {
                         compose_pm_pill.set_from_typeahead(user);
                     });
                 // clear input pill in the event no pills were added
-                var pill_widget = compose_pm_pill.widget;
+                const pill_widget = compose_pm_pill.widget;
                 if (pill_widget.clear_text !== undefined) {
                     pill_widget.clear_text();
                 }
@@ -901,16 +1058,10 @@ exports.initialize = function () {
     exports.initialize_compose_typeahead("#compose-textarea");
 
     $("#private_message_recipient").blur(function () {
-        var val = $(this).val();
-        var recipients = typeahead_helper.get_cleaned_pm_recipients(val);
+        const val = $(this).val();
+        const recipients = typeahead_helper.get_cleaned_pm_recipients(val);
         $(this).val(recipients.join(", "));
     });
 };
 
-return exports;
-
-}());
-if (typeof module !== 'undefined') {
-    module.exports = composebox_typeahead;
-}
-window.composebox_typeahead = composebox_typeahead;
+window.composebox_typeahead = exports;

@@ -91,25 +91,32 @@ of commits with good commit messages.
 
 The first line of the commit message is the **summary**. The summary:
 * is written in the imperative (e.g., "Fix ...", "Add ...")
-* is kept short, while concisely explaining what the commit does
+* is kept short (max 76 characters, ideally less), while concisely
+  explaining what the commit does
 * is clear about what part of the code is affected -- often by prefixing
   with the name of the subsystem and a colon, like "zjsunit: ..." or "docs: ..."
-* is a complete sentence, ending with a period.
+* is a complete sentence.
 
-Good summaries:
+### Good summaries:
+
+Notice how the first example starts with a capital letter "**I**", ends with a
+period "**.**", and the name of the subsystem starts with a lowerecase letter
+"**p**" followed by a colon "**:**" and a single space **" "** after the colon.
+
+> *provision: Improve performance of installing npm.*
 
 > *zjsunit: Fix running stream_data and node tests individually.*
 
 > *gather_subscriptions: Fix exception handling bad input.*
 
-> *Add GitLab integration.*
+> *integrations: Add GitLab integration.*
 
 Compare "*gather_subscriptions: Fix exception handling bad input.*" with:
 
 * "*gather_subscriptions was broken*", which doesn't explain how
   it was broken (and isn't in the imperative)
 * "*Fix exception when given bad input*", in which it's impossible to
-  tell from the summary what part of the code is affected
+  tell from the summary what part of the codebase was changed
 * "*gather_subscriptions: Fixing exception when given bad input.*",
   not in the imperative
 * "*gather_subscriptions: Fixed exception when given bad input.*",
@@ -117,6 +124,14 @@ Compare "*gather_subscriptions: Fix exception handling bad input.*" with:
 
 The summary is followed by a blank line, and then the body of the
 commit message.
+
+**Tip:** You can set up [Zulip's Git pre-commit hook][commit-hook] to
+automatically catch common mistakes in the commit message itself.
+
+[commit-hook]: ../git/zulip-tools.html#set-up-git-repo-script
+
+### Message body:
+
 -   The body is written in prose, with full paragraphs.
 -   The body explains:
     -   why and how the change was made
@@ -133,5 +148,10 @@ commit message.
     Zulip's preferred style for this is to have the final paragraph of
     the commit message read e.g. "Fixes: \#123."
 -   Any paragraph content in the commit message should be line-wrapped
-    to less than 76 characters per line, so that your commit message
-    will be reasonably readable in `git log` in a normal terminal.
+    to about 68 characters per line, but no more than 70, so that your
+    commit message will be reasonably readable in `git log` in a normal
+    terminal. You may find it helpful to:
+    - configure Git to use your preferred editor, with the EDITOR
+    environment variable or `git config --global core.editor`, and
+    - configure the editor to automatically wrap text to 70 or fewer
+    columns per line (all text editors support this).

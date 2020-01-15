@@ -4,8 +4,6 @@ html {
 }
 
 body {
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
     margin: 0;
     background-color: hsl(0, 0%, 100%);
     color: hsl(0, 0%, 27%);
@@ -301,9 +299,6 @@ nav ul {
 
 nav ul .exit {
     display: none;
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
     user-select: none;
 }
 
@@ -1168,8 +1163,6 @@ nav ul li.active::after {
 
 .portico-landing.hello .screen.hero-screen .main-page {
     transform: translateY(-12px) translateX(3px);
-    -webkit-transform: translateY(-12px) translateX(3px);
-    -moz-transform: translateY(-12px) translateX(3px);
     border: 5px solid hsl(0, 0%, 0%);
 }
 
@@ -1357,7 +1350,7 @@ nav ul li.active::after {
     color: hsl(0, 0%, 100%);
     background-color: hsl(185, 38%, 55%);
     background: linear-gradient(145deg, hsl(191, 56%, 55%), hsl(169, 65%, 42%));
-    box-shadow: 0px 3px 10px hsla(0, 0%, 0%, 0.3);
+    box-shadow: 0px 3px 10px hsla(0, 0%, 0%, 0.2);
     border: 0;
     position: absolute;
     left: 50%;
@@ -1834,7 +1827,6 @@ nav ul li.active::after {
     margin-top: -50px;
 
     background-color: hsl(177, 52%, 55%);
-    background: -webkit-linear-gradient(145deg, hsl(169, 65%, 42%), hsl(191, 55%, 54%));
     background: linear-gradient(145deg, hsl(191, 56%, 55%), hsl(169, 65%, 42%));
 
     color: hsl(0, 0%, 100%);
@@ -1848,7 +1840,7 @@ nav ul li.active::after {
     height: 0;
     border-style: solid;
     border-width: 150px 100vw 0 0;
-    border-color: hsl(0, 0%, 100%) transparent transparent transparent;
+    border-color: hsl(0, 0%, 98%) transparent transparent transparent;
 }
 
 .portico-landing.hello .apps .arrow {
@@ -1905,11 +1897,14 @@ nav ul li.active::after {
     width: 80px;
 
     font-size: 3.5em;
+    opacity: 0.8;
+}
+
+.portico-landing.hello .apps .left-side .platform-icons .group i:hover {
+    opacity: 1;
 }
 
 .portico-landing.hello .apps .arrow::after {
-    -webkit-filter: brightness(4) saturate(0);
-    -moz-filter: brightness(4) saturate(0);
     filter: brightness(4) saturate(0);
 }
 
@@ -1996,6 +1991,7 @@ nav ul li.active::after {
     margin-top: 60px;
     text-align: center;
     font-size: 1.3rem;
+    font-weight: 300;
 }
 
 .portico-landing.hello .call-to-action-bottom .zulip-octopus {
@@ -2005,8 +2001,6 @@ nav ul li.active::after {
     background-image: url(/static/images/landing-page/zulip-octopus.png);
     background-size: cover;
 
-    -webkit-filter: invert(0.9);
-    -moz-filter: invert(0.9);
     filter: invert(0.9);
 }
 
@@ -2260,6 +2254,7 @@ nav ul li.active::after {
 
     font-size: 0.8em;
     font-weight: normal;
+    line-height: 100%;
     color: hsl(0, 0%, 53%);
 }
 
@@ -2379,7 +2374,7 @@ nav ul li.active::after {
     padding: 30px 0px;
     border-radius: 20px;
 
-    -webkit-transform: translateY(50px);
+    transform: translateY(50px);
 
     background-color: hsl(0, 0%, 100%);
 }
@@ -2390,7 +2385,7 @@ nav ul li.active::after {
     padding: 10px 0px 30px 0px;
     border-radius: 20px;
 
-    -webkit-transform: translateY(-110px);
+    transform: translateY(-110px);
 
     background: linear-gradient(90deg, hsl(0, 0%, 27%) 0%, hsl(0, 0%, 33%) 8%, hsl(0, 0%, 33%) 92%, hsl(0, 0%, 27%) 100%);
 }
@@ -2595,7 +2590,7 @@ nav ul li.active::after {
     background-position: center;
     background-repeat: no-repeat;
 
-    -webkit-filter: invert(0.3);
+    filter: invert(0.3);
 }
 
 .pricing-model .pricing-container .bottom {

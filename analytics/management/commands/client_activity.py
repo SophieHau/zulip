@@ -1,12 +1,13 @@
 import datetime
 from argparse import ArgumentParser
-from typing import Any
+from typing import Any, Optional
 
 from django.db.models import Count, QuerySet
 from django.utils.timezone import now as timezone_now
 
 from zerver.lib.management import ZulipBaseCommand
 from zerver.models import UserActivity
+
 
 class Command(ZulipBaseCommand):
     help = """Report rough client activity globally, for a realm, or for a user
@@ -56,7 +57,7 @@ Usage examples:
             print("%25s %15d" % (count[1], count[0]))
         print("Total:", total)
 
-    def handle(self, *args: Any, **options: str) -> None:
+    def handle(self, *args: Any, **options: Optional[str]) -> None:
         realm = self.get_realm(options)
         if options["user"] is None:
             if options["target"] == "server" and realm is None:

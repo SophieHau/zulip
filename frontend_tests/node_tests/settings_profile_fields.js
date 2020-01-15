@@ -42,7 +42,7 @@ function test_populate(opts) {
     table.set_find_results('tr.profile-field-row', rows);
     table.set_find_results('tr.profile-field-form', form);
 
-    var num_appends = 0;
+    let num_appends = 0;
     table.append = () => {
         num_appends += 1;
     };
@@ -175,6 +175,3 @@ run_test('populate_profile_fields', () => {
         is_admin: true,
     });
 });
-
-
-

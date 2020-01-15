@@ -13,7 +13,7 @@ zrequire('feature_flags');
 zrequire('message_edit');
 zrequire('util');
 
-var noop =  function () {};
+const noop =  function () {};
 $.fn.popover = noop; // this will get wrapped by our code
 
 zrequire('popovers');
@@ -21,6 +21,8 @@ popovers.hide_user_profile = noop;
 
 set_global('current_msg_list', {});
 set_global('page_params', {
+    is_admin: false,
+    realm_email_address_visibility: 3,
     custom_profile_fields: [],
 });
 set_global('rows', {});
@@ -48,7 +50,7 @@ set_global('ClipboardJS', function (sel) {
     assert.equal(sel, '.copy_link');
 });
 
-var alice = {
+const alice = {
     email: 'alice@example.com',
     full_name: 'Alice Smith',
     user_id: 42,
@@ -56,21 +58,21 @@ var alice = {
     is_admin: false,
 };
 
-var me = {
+const me = {
     email: 'me@example.com',
     user_id: 30,
     full_name: 'Me Myself',
     timezone: 'US/Pacific',
 };
 
-var target = $.create('click target');
+const target = $.create('click target');
 target.offset = () => {
     return {
         top: 10,
     };
 };
 
-var e = {
+const e = {
     stopPropagation: noop,
 };
 
@@ -84,10 +86,10 @@ function initialize_people() {
 initialize_people();
 
 function make_image_stubber() {
-    var images = [];
+    const images = [];
 
     function stub_image() {
-        var image = {};
+        const image = {};
         image.to_$ = () => {
             return {
                 on: (name, f) => {
@@ -112,10 +114,10 @@ function make_image_stubber() {
 popovers.register_click_handlers();
 
 run_test('sender_hover', () => {
-    var selection = ".sender_name, .sender_name-in-status, .inline_profile_picture";
-    var handler = $('#main_div').get_on_handler('click', selection);
+    const selection = ".sender_name, .sender_name-in-status, .inline_profile_picture";
+    const handler = $('#main_div').get_on_handler('click', selection);
 
-    var message = {
+    const message = {
         id: 999,
         sender_id: alice.user_id,
     };
@@ -187,18 +189,18 @@ run_test('sender_hover', () => {
 
     $('.user_popover_email').each = noop;
 
-    var image_stubber = make_image_stubber();
+    const image_stubber = make_image_stubber();
 
     handler.call(target, e);
 
-    var avatar_img = image_stubber.get(0);
+    const avatar_img = image_stubber.get(0);
     assert.equal(avatar_img.src, 'avatar/42/medium');
 
     // todo: load image
 });
 
 run_test('actions_popover', () => {
-    var handler = $('#main_div').get_on_handler('click', '.actions_hover');
+    const handler = $('#main_div').get_on_handler('click', '.actions_hover');
 
     window.location = {
         protocol: 'http:',
@@ -206,7 +208,7 @@ run_test('actions_popover', () => {
         pathname: '/',
     };
 
-    var message = {
+    const message = {
         id: 999,
         topic: 'Actions (1)',
         type: 'stream',

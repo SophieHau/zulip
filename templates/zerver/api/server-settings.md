@@ -21,10 +21,7 @@ Fetch global settings for a Zulip server.
 
 {tab|curl}
 
-``` curl
-curl -X GET {{ api_url }}/v1/server_settings \
-    -u BOT_EMAIL_ADDRESS:BOT_API_KEY
-```
+{generate_code_example(curl)|/server_settings:get|example}
 
 {end_tabs}
 
@@ -40,6 +37,8 @@ curl -X GET {{ api_url }}/v1/server_settings \
   indicates whether the authentication method is enabled on this server.
 * `zulip_version`: the version of Zulip running in the server.
 * `push_notifications_enabled`: whether mobile/push notifications are enabled.
+* `is_incompatible`: whether the Zulip client that has sent a request to
+  this endpoint is deemed incompatible with the server.
 * `email_auth_enabled`: setting for allowing users authenticate with an
   email-password combination.
 * `require_email_format_usernames`: whether usernames should have an
@@ -53,14 +52,19 @@ curl -X GET {{ api_url }}/v1/server_settings \
 * `realm_icon`: the URI of the organization's logo as a square image,
   used for identifying the organization in small locations in the
   mobile and desktop apps.
-* `realm_logo`: the URI of the organization's logo as a horizontal
-  format image (displayed in the top-left corner of the logged-in
-  webapp).
-* `realm_night_logo`: the URI of the organization's logo in the night mode as a
-  horizontal format image (dispalyed in the top-left corner of the logged-in
-  webapp).
 * `realm_description`: HTML description of the organization, as configured by
   the [organization profile](/help/create-your-organization-profile).
+* `external_authentication_methods`: list of dictionaries describing
+  the available external authentication methods (such as
+  google/github/SAML) enabled for this organization. Each dictionary
+  specifies the name and icon that should be displayed on the login
+  buttons (`display_name` and `display_icon`, where `display_icon` can
+  be `null`, if no icon is to be displayed), the URLs that
+  should be accessed to initiate login/signup using the method
+  (`login_url` and `signup_url`) and `name`, which is a unique,
+  stable, machine-readable name for the authentication method.  The
+  list is sorted in the order in which these authentication methods
+  should be displayed.
 
 [ldap-auth]: https://zulip.readthedocs.io/en/latest/production/authentication-methods.html#ldap-including-active-directory
 

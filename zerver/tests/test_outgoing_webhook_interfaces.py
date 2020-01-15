@@ -5,22 +5,30 @@ import mock
 import json
 import requests
 
+from zerver.lib.message import MessageDict
 from zerver.lib.outgoing_webhook import (
     get_service_interface_class,
     process_success_response,
 )
 from zerver.lib.test_classes import ZulipTestCase
 from zerver.lib.topic import TOPIC_NAME
-from zerver.models import get_realm, get_user, SLACK_INTERFACE
+from zerver.models import get_realm, get_user, SLACK_INTERFACE, Message
 
 class TestGenericOutgoingWebhookService(ZulipTestCase):
 
     def setUp(self) -> None:
+        super().setUp()
+
+        # TODO: Ideally, this test would use the full flow, rather
+        # than making a mock message like this.
+        message_id = self.send_stream_message(self.example_email('othello'),
+                                              "Denmark", content="@**test**")
+        message = Message.objects.get(id=message_id)
+        wide_message_dict = MessageDict.wide_dict(message)
+
         self.event = {
             u'command': '@**test**',
-            u'message': {
-                'content': '@**test**',
-            },
+            u'message': wide_message_dict,
             u'trigger': 'mention',
         }
         self.bot_user = get_user("outgoing-webhook@zulip.com", get_realm("zulip"))
@@ -32,7 +40,7 @@ class TestGenericOutgoingWebhookService(ZulipTestCase):
     def test_process_success_response(self) -> None:
         class Stub:
             def __init__(self, text: str) -> None:
-                self.text = text  # type: ignore
+                self.text = text
 
         def make_response(text: str) -> requests.Response:
             return cast(requests.Response, Stub(text=text))
@@ -98,6 +106,7 @@ class TestGenericOutgoingWebhookService(ZulipTestCase):
 class TestSlackOutgoingWebhookService(ZulipTestCase):
 
     def setUp(self) -> None:
+        super().setUp()
         self.stream_message_event = {
             u'command': '@**test**',
             u'user_profile_id': 12,

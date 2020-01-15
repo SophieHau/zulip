@@ -17,7 +17,7 @@ from zerver.lib.alert_words import user_alert_words
 from zerver.lib.avatar import avatar_url, get_avatar_field
 from zerver.lib.bot_config import load_bot_config_template
 from zerver.lib.hotspots import get_next_hotspots
-from zerver.lib.integrations import EMBEDDED_BOTS
+from zerver.lib.integrations import EMBEDDED_BOTS, WEBHOOK_INTEGRATIONS
 from zerver.lib.message import (
     aggregate_unread_data,
     apply_unread_message_event,
@@ -25,12 +25,13 @@ from zerver.lib.message import (
     get_recent_conversations_recipient_id,
     get_recent_private_conversations,
     get_starred_message_ids,
+    remove_message_id_from_unread_mgs,
 )
 from zerver.lib.narrow import check_supported_events_narrow_filter, read_stop_words
 from zerver.lib.push_notifications import push_notifications_enabled
 from zerver.lib.soft_deactivation import reactivate_user_if_soft_deactivated
 from zerver.lib.realm_icon import realm_icon_url
-from zerver.lib.realm_logo import realm_logo_url
+from zerver.lib.realm_logo import get_realm_logo_url
 from zerver.lib.request import JsonableError
 from zerver.lib.stream_subscription import handle_stream_notifications_compatibility
 from zerver.lib.topic import TOPIC_NAME
@@ -55,12 +56,10 @@ from zproject.backends import email_auth_enabled, password_auth_enabled
 from version import ZULIP_VERSION
 from zerver.lib.external_accounts import DEFAULT_EXTERNAL_ACCOUNTS
 
-def get_raw_user_data(realm: Realm, client_gravatar: bool) -> Dict[int, Dict[str, str]]:
-    user_dicts = get_realm_user_dicts(realm.id)
-
+def get_custom_profile_field_values(realm_id: int) -> Dict[int, Dict[str, Any]]:
     # TODO: Consider optimizing this query away with caching.
     custom_profile_field_values = CustomProfileFieldValue.objects.select_related(
-        "field").filter(user_profile__realm_id=realm.id)
+        "field").filter(user_profile__realm_id=realm_id)
     profiles_by_user_id = defaultdict(dict)  # type: Dict[int, Dict[str, Any]]
     for profile_field in custom_profile_field_values:
         user_id = profile_field.user_profile_id
@@ -73,20 +72,29 @@ def get_raw_user_data(realm: Realm, client_gravatar: bool) -> Dict[int, Dict[str
             profiles_by_user_id[user_id][profile_field.field_id] = {
                 "value": profile_field.value
             }
+    return profiles_by_user_id
+
+
+def get_raw_user_data(realm: Realm, user_profile: UserProfile, client_gravatar: bool,
+                      include_custom_profile_fields: bool=True) -> Dict[int, Dict[str, str]]:
+    user_dicts = get_realm_user_dicts(realm.id)
+
+    if include_custom_profile_fields:
+        profiles_by_user_id = get_custom_profile_field_values(realm.id)
 
     def user_data(row: Dict[str, Any]) -> Dict[str, Any]:
         avatar_url = get_avatar_field(
             user_id=row['id'],
             realm_id=realm.id,
-            email=row['email'],
+            email=row['delivery_email'],
             avatar_source=row['avatar_source'],
             avatar_version=row['avatar_version'],
             medium=False,
             client_gravatar=client_gravatar,
         )
 
-        is_admin = row['is_realm_admin']
-        is_guest = row['is_guest']
+        is_admin = row['role'] == UserProfile.ROLE_REALM_ADMINISTRATOR
+        is_guest = row['role'] == UserProfile.ROLE_GUEST
         is_bot = row['is_bot']
         # This format should align with get_cross_realm_dicts() and notify_created_user
         result = dict(
@@ -101,12 +109,19 @@ def get_raw_user_data(realm: Realm, client_gravatar: bool) -> Dict[int, Dict[str
             is_active = row['is_active'],
             date_joined = row['date_joined'].isoformat(),
         )
+
+        if (realm.email_address_visibility == Realm.EMAIL_ADDRESS_VISIBILITY_ADMINS and
+                user_profile.is_realm_admin):
+            result['delivery_email'] = row['delivery_email']
+
         if is_bot:
+            result["bot_type"] = row["bot_type"]
             if row['email'] in settings.CROSS_REALM_BOT_EMAILS:
                 result['is_cross_realm_bot'] = True
-            elif row['bot_owner_id'] is not None:
-                result['bot_owner_id'] = row['bot_owner_id']
-        else:
+
+            # Note that bot_owner_id can be None with legacy data.
+            result['bot_owner_id'] = row['bot_owner_id']
+        elif include_custom_profile_fields:
             result['profile_data'] = profiles_by_user_id.get(row['id'], {})
         return result
 
@@ -116,9 +131,9 @@ def get_raw_user_data(realm: Realm, client_gravatar: bool) -> Dict[int, Dict[str
     }
 
 def add_realm_logo_fields(state: Dict[str, Any], realm: Realm) -> None:
-    state['realm_logo_url'] = realm_logo_url(realm, night = False)
+    state['realm_logo_url'] = get_realm_logo_url(realm, night = False)
     state['realm_logo_source'] = realm.logo_source
-    state['realm_night_logo_url'] = realm_logo_url(realm, night = True)
+    state['realm_night_logo_url'] = get_realm_logo_url(realm, night = True)
     state['realm_night_logo_source'] = realm.night_logo_source
     state['max_logo_file_size'] = settings.MAX_LOGO_FILE_SIZE
 
@@ -130,10 +145,6 @@ def always_want(msg_type: str) -> bool:
     info for every event type.  Defining this at module
     level makes it easier to mock.
     '''
-    if settings.PRODUCTION and msg_type == "recent_private_conversations":  # nocoverage
-        # Temporary: Don't include recent_private_conversations in production
-        # by default while the feature is still experimental.
-        return False
     return True
 
 # Fetch initial data.  When event_types is not specified, clients want
@@ -247,6 +258,7 @@ def fetch_initial_state_data(user_profile: UserProfile,
     if want('realm_user'):
         state['raw_users'] = get_raw_user_data(
             realm=realm,
+            user_profile=user_profile,
             client_gravatar=client_gravatar,
         )
 
@@ -288,6 +300,17 @@ def fetch_initial_state_data(user_profile: UserProfile,
             realm_embedded_bots.append({'name': bot.name,
                                         'config': load_bot_config_template(bot.name)})
         state['realm_embedded_bots'] = realm_embedded_bots
+
+    # This does not have an apply_events counterpart either since
+    # this data is mostly static.
+    if want('realm_incoming_webhook_bots'):
+        realm_incoming_webhook_bots = []
+        for integration in WEBHOOK_INTEGRATIONS:
+            realm_incoming_webhook_bots.append({
+                'name': integration.name,
+                'config': {c[1]: c[0] for c in integration.config_options}
+            })
+        state['realm_incoming_webhook_bots'] = realm_incoming_webhook_bots
 
     if want('recent_private_conversations'):
         # A data structure containing records of this form:
@@ -359,17 +382,6 @@ def fetch_initial_state_data(user_profile: UserProfile,
 
     return state
 
-
-def remove_message_id_from_unread_mgs(state: Dict[str, Dict[str, Any]],
-                                      message_id: int) -> None:
-    raw_unread = state['raw_unread_msgs']
-
-    for key in ['pm_dict', 'stream_dict', 'huddle_dict']:
-        raw_unread[key].pop(message_id, None)
-
-    raw_unread['unmuted_stream_msgs'].discard(message_id)
-    raw_unread['mentions'].discard(message_id)
-
 def apply_events(state: Dict[str, Any], events: Iterable[Dict[str, Any]],
                  user_profile: UserProfile, client_gravatar: bool,
                  include_subscribers: bool = True,
@@ -412,9 +424,9 @@ def apply_event(state: Dict[str, Any],
 
                 if recipient_id not in conversations:
                     conversations[recipient_id] = dict(
-                        user_ids=[user_dict['id'] for user_dict in
-                                  event['message']['display_recipient'] if
-                                  user_dict['id'] != user_profile.id]
+                        user_ids=sorted([user_dict['id'] for user_dict in
+                                         event['message']['display_recipient'] if
+                                         user_dict['id'] != user_profile.id])
                     )
                 conversations[recipient_id]['max_message_id'] = event['message']['id']
             return
@@ -635,7 +647,7 @@ def apply_event(state: Dict[str, Any],
             # Remove our user from the subscribers of the removed subscriptions.
             if include_subscribers:
                 for sub in removed_subs:
-                    sub['subscribers'] = [id for id in sub['subscribers'] if id != user_profile.id]
+                    sub['subscribers'].remove(user_profile.id)
 
             # We must effectively copy the removed subscriptions from subscriptions to
             # unsubscribe, since we only have the name in our data structure.
@@ -687,8 +699,9 @@ def apply_event(state: Dict[str, Any],
         else:
             state['max_message_id'] = -1
 
-        remove_id = event['message_id']
-        remove_message_id_from_unread_mgs(state, remove_id)
+        if 'raw_unread_msgs' in state:
+            remove_id = event['message_id']
+            remove_message_id_from_unread_mgs(state['raw_unread_msgs'], remove_id)
 
         # The remainder of this block is about maintaining recent_private_conversations
         if 'raw_recent_private_conversations' not in state or event['message_type'] != 'private':
@@ -731,9 +744,9 @@ def apply_event(state: Dict[str, Any],
         # We don't return messages in `/register`, so most flags we
         # can ignore, but we do need to update the unread_msgs data if
         # unread state is changed.
-        if event['flag'] == 'read' and event['operation'] == 'add':
+        if 'raw_unread_msgs' in state and event['flag'] == 'read' and event['operation'] == 'add':
             for remove_id in event['messages']:
-                remove_message_id_from_unread_mgs(state, remove_id)
+                remove_message_id_from_unread_mgs(state['raw_unread_msgs'], remove_id)
         if event['flag'] == 'starred' and event['operation'] == 'add':
             state['starred_messages'] += event['messages']
         if event['flag'] == 'starred' and event['operation'] == 'remove':

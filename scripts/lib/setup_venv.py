@@ -1,11 +1,11 @@
-
 import logging
 import os
 import shutil
 import subprocess
-import sys
 from scripts.lib.zulip_tools import run, run_as_root, ENDC, WARNING
 from scripts.lib.hash_reqs import expand_reqs
+
+from typing import List, Optional, Tuple, Set
 
 ZULIP_PATH = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 VENV_CACHE_PATH = "/srv/zulip-venv-cache"
@@ -13,10 +13,6 @@ VENV_CACHE_PATH = "/srv/zulip-venv-cache"
 if 'TRAVIS' in os.environ:
     # In Travis CI, we don't have root access
     VENV_CACHE_PATH = "/home/travis/zulip-venv-cache"
-
-if False:
-    # See https://zulip.readthedocs.io/en/latest/testing/mypy.html#mypy-in-production-scripts
-    from typing import List, Optional, Tuple, Set
 
 VENV_DEPENDENCIES = [
     "build-essential",
@@ -33,11 +29,14 @@ VENV_DEPENDENCIES = [
     "virtualenv",
     "python3-six",
     "python-six",
-    "libxml2-dev",          # Used for installing talon
+    "libxml2-dev",          # Used for installing talon and python-xmlsec
     "libxslt1-dev",         # Used for installing talon
     "libpq-dev",            # Needed by psycopg2
     "libssl-dev",           # Needed to build pycurl and other libraries
     "libmagic1",            # Used for install python-magic
+    # Needed by python-xmlsec:
+    "libxmlsec1-dev",
+    "pkg-config",
 
     # This is technically a node dependency, but we add it here
     # because we don't have another place that we install apt packages
@@ -56,7 +55,14 @@ COMMON_YUM_VENV_DEPENDENCIES = [
     "python-devel",
     "python2-pip",
     "python-six",
+    # Needed by python-xmlsec:
+    "gcc"
+    "python3-devel",
     "libxml2-devel",
+    "xmlsec1-devel",
+    "xmlsec1-openssl-devel",
+    "libtool-ltdl-devel",
+
     "libxslt-devel",
     "postgresql-libs",  # libpq-dev on apt
     "openssl-devel",
@@ -70,7 +76,6 @@ REDHAT_VENV_DEPENDENCIES = COMMON_YUM_VENV_DEPENDENCIES + [
 ]
 
 FEDORA_VENV_DEPENDENCIES = COMMON_YUM_VENV_DEPENDENCIES + [
-    "python3-devel",
     "python3-pip",
     "python3-six",
     "virtualenv",  # see https://unix.stackexchange.com/questions/27877/install-virtualenv-on-fedora-16
@@ -97,8 +102,8 @@ YUM_THUMBOR_VENV_DEPENDENCIES = [
 def install_venv_deps(pip, requirements_file):
     # type: (str, str) -> None
     pip_requirements = os.path.join(ZULIP_PATH, "requirements", "pip.txt")
-    run([pip, "install", "-U", "--requirement", pip_requirements])
-    run([pip, "install", "--no-deps", "--requirement", requirements_file])
+    run([pip, "install", "--force-reinstall", "--require-hashes", "--requirement", pip_requirements])
+    run([pip, "install", "--no-deps", "--require-hashes", "--requirement", requirements_file])
 
 def get_index_filename(venv_path):
     # type: (str) -> str
@@ -324,37 +329,11 @@ def do_setup_virtualenv(venv_path, requirements_file, virtualenv_args):
         print("Configuring pip to use custom CA certificates...")
         add_cert_to_pipconf()
 
-    # CentOS-specific hack/workaround
-    # Install pycurl with custom flag due to this error when installing
-    # via pip:
-    # __main__.ConfigurationError: Curl is configured to use SSL, but
-    # we have not been able to determine which SSL backend it is using.
-    # Please see PycURL documentation for how to specify the SSL
-    # backend manually.
-    # See https://github.com/pycurl/pycurl/issues/526
-    # The fix exists on pycurl master, but not yet in any release
-    # We can likely remove this when pycurl > 7.43.0.2 comes out.
-    if os.path.exists("/etc/redhat-release"):
-        pycurl_env = os.environ.copy()
-        pycurl_env["PYCURL_SSL_LIBRARY"] = "nss"
-        run([pip, "install", "pycurl==7.43.0.2", "--compile", "--no-cache-dir"],
-            env=pycurl_env)
-
     try:
         install_venv_deps(pip, requirements_file)
     except subprocess.CalledProcessError:
         # Might be a failure due to network connection issues. Retrying...
         print(WARNING + "`pip install` failed; retrying..." + ENDC)
         install_venv_deps(pip, requirements_file)
-
-    # The typing module has been included in stdlib since 3.5.
-    # Installing a pypi version of it has been harmless until a bug
-    # "AttributeError: type object 'Callable' has no attribute
-    # '_abc_registry'" happens in 3.7. And so just to be safe, it is
-    # disabled from now on for all >= 3.5 versions.
-    # Remove this once 3.4 is no longer supported.
-    at_least_35 = (sys.version_info.major == 3) and (sys.version_info.minor >= 5)
-    if at_least_35 and ('python2.7' not in virtualenv_args):
-        run([pip, "uninstall", "-y", "typing"])
 
     run_as_root(["chmod", "-R", "a+rX", venv_path])

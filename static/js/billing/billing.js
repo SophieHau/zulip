@@ -1,11 +1,8 @@
-var billing = (function () {
-var exports = {};
-
 exports.initialize = function () {
     helpers.set_tab("billing");
 
-    var stripe_key = $("#payment-method").data("key");
-    var card_change_handler = StripeCheckout.configure({ // eslint-disable-line no-undef
+    const stripe_key = $("#payment-method").data("key");
+    const card_change_handler = StripeCheckout.configure({ // eslint-disable-line no-undef
         key: stripe_key,
         image: '/static/images/logo/zulip-icon-128x128.png',
         locale: 'auto',
@@ -15,7 +12,7 @@ exports.initialize = function () {
     });
 
     $('#update-card-button').on('click', function (e) {
-        var email = $("#payment-method").data("email");
+        const email = $("#payment-method").data("email");
         card_change_handler.open({
             name: 'Zulip',
             zipCode: true,
@@ -29,15 +26,8 @@ exports.initialize = function () {
     });
 };
 
-return exports;
-}());
-
-if (typeof module !== 'undefined') {
-    module.exports = billing;
-}
-
-window.billing = billing;
+window.billing = exports;
 
 $(function () {
-    billing.initialize();
+    exports.initialize();
 });

@@ -1,11 +1,7 @@
-var render_admin_emoji_list = require('../templates/admin_emoji_list.hbs');
-var render_settings_emoji_settings_tip = require("../templates/settings/emoji_settings_tip.hbs");
+const render_admin_emoji_list = require('../templates/admin_emoji_list.hbs');
+const render_settings_emoji_settings_tip = require("../templates/settings/emoji_settings_tip.hbs");
 
-var settings_emoji = (function () {
-
-var exports = {};
-
-var meta = {
+const meta = {
     loaded: false,
 };
 
@@ -37,7 +33,7 @@ function can_admin_emoji(emoji) {
 }
 
 exports.update_custom_emoji_ui = function () {
-    var rendered_tip = render_settings_emoji_settings_tip({
+    const rendered_tip = render_settings_emoji_settings_tip({
         realm_add_emoji_by_admins_only: page_params.realm_add_emoji_by_admins_only,
     });
     $('#emoji-settings').find('.emoji-settings-tip-container').html(rendered_tip);
@@ -61,21 +57,46 @@ exports.populate_emoji = function (emoji_data) {
         return;
     }
 
-    var emoji_table = $('#admin_emoji_table').expectOne();
-    emoji_table.find('tr.emoji_row').remove();
-    _.each(emoji_data, function (data) {
-        if (data.deactivated !== true) {
-            emoji_table.append(render_admin_emoji_list({
-                emoji: {
-                    name: data.name,
-                    display_name: data.name.replace(/_/g, ' '),
-                    source_url: data.source_url,
-                    author: data.author || '',
-                    can_admin_emoji: can_admin_emoji(data),
-                },
-            }));
+    const emoji_table = $('#admin_emoji_table').expectOne();
+    const emoji_list = list_render.create(emoji_table, Object.values(emoji_data), {
+        name: "emoji_list",
+        modifier: function (item) {
+            if (item.deactivated !== true) {
+                return render_admin_emoji_list({
+                    emoji: {
+                        name: item.name,
+                        display_name: item.name.replace(/_/g, ' '),
+                        source_url: item.source_url,
+                        author: item.author || '',
+                        can_admin_emoji: can_admin_emoji(item),
+                    },
+                });
+            }
+            return "";
+        },
+        filter: {
+            element: emoji_table.closest(".settings-section").find(".search"),
+            callback: function (item, value) {
+                return item.name.toLowerCase().indexOf(value) >= 0;
+            },
+            onupdate: function () {
+                ui.reset_scrollbar(emoji_table);
+            },
+        },
+        parent_container: $("#emoji-settings").expectOne(),
+    }).init();
+
+    emoji_list.sort("alphabetic", "name");
+
+    emoji_list.add_sort_function("author_full_name", function (a, b) {
+        if (a.author.full_name > b.author.full_name) {
+            return 1;
+        } else if (a.author.full_name === b.author.full_name) {
+            return 0;
         }
+        return -1;
     });
+
     loading.destroy_indicator($('#admin_page_emoji_loading_indicator'));
 };
 
@@ -90,7 +111,7 @@ exports.set_up = function () {
     $('.admin_emoji_table').on('click', '.delete', function (e) {
         e.preventDefault();
         e.stopPropagation();
-        var btn = $(this);
+        const btn = $(this);
 
         channel.del({
             url: '/json/realm/emoji/' + encodeURIComponent(btn.attr('data-emoji-name')),
@@ -98,21 +119,21 @@ exports.set_up = function () {
                 ui_report.generic_row_button_error(xhr, btn);
             },
             success: function () {
-                var row = btn.parents('tr');
+                const row = btn.parents('tr');
                 row.remove();
             },
         });
     });
 
-    var emoji_widget = emoji.build_emoji_upload_widget();
+    const emoji_widget = emoji.build_emoji_upload_widget();
 
     $(".organization form.admin-emoji-form").off('submit').on('submit', function (e) {
         e.preventDefault();
         e.stopPropagation();
-        var emoji_status = $('#admin-emoji-status');
+        const emoji_status = $('#admin-emoji-status');
         $('#admin_emoji_submit').attr('disabled', true);
-        var emoji = {};
-        var formData = new FormData();
+        const emoji = {};
+        const formData = new FormData();
         _.each($(this).serializeArray(), function (obj) {
             emoji[obj.name] = obj.value;
         });
@@ -134,7 +155,7 @@ exports.set_up = function () {
             },
             error: function (xhr) {
                 $('#admin-emoji-status').hide();
-                var errors = JSON.parse(xhr.responseText).msg;
+                const errors = JSON.parse(xhr.responseText).msg;
                 xhr.responseText = JSON.stringify({msg: errors});
                 ui_report.error(i18n.t("Failed"), xhr, emoji_status);
                 $('#admin_emoji_submit').removeAttr('disabled');
@@ -144,10 +165,4 @@ exports.set_up = function () {
     });
 };
 
-return exports;
-}());
-
-if (typeof module !== 'undefined') {
-    module.exports = settings_emoji;
-}
-window.settings_emoji = settings_emoji;
+window.settings_emoji = exports;

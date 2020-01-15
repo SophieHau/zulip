@@ -4,10 +4,7 @@ import argparse
 import os
 import json
 import subprocess
-
-if False:
-    # `NoReturn` wasn't introduced until python 3.5.4
-    from typing import NoReturn
+from typing_extensions import NoReturn
 
 os.chdir(os.path.join(os.path.dirname(__file__), '..'))
 STATIC_PATH = 'static/'
@@ -36,6 +33,9 @@ def build_for_dev_server(host, port, minify, disable_host_check):
     webpack_args += [
         '--config',
         'tools/webpack.config.ts',
+        # webpack-cli has a bug where it ignores --watch-poll with
+        # multi-config, and we don't need the katex-cli part anyway.
+        '--config-name', 'frontend',
         '--allowed-hosts', ','.join([host, '.zulipdev.com', '.zulipdev.org']),
         '--host', host,
         '--port', port,
@@ -49,6 +49,20 @@ def build_for_dev_server(host, port, minify, disable_host_check):
     if disable_host_check:
         webpack_args.append('--disable-host-check')
 
+    # Tell webpack-dev-server to fall back to periodic polling on
+    # filesystems where inotify is known to be broken.
+    cwd = os.getcwd()
+    inotify_broken = False
+    with open('/proc/self/mounts') as mounts:
+        for line in mounts:
+            fields = line.split()
+            if fields[1] == cwd:
+                inotify_broken = fields[2] in ["nfs", "vboxsf"]
+    if inotify_broken:
+        webpack_args.append('--watch-poll=1000')
+
+    # TODO: This process should also fall back to periodic polling if
+    # inotify_broken.
     import pyinotify
     try:
         webpack_process = subprocess.Popen(webpack_args)
@@ -94,7 +108,8 @@ def build_for_most_tests():
             }]
     stat_data = {
         "status": "done",
-        "chunks": entries
+        "chunks": entries,
+        "entryPoints": {name: [chunk] for name, chunk in entries.items()},
     }
     directory = 'var'
     if not os.path.exists(directory):

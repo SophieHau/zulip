@@ -1,4 +1,4 @@
-var common = require('../casper_lib/common.js').common;
+var common = require('../casper_lib/common.js');
 
 common.start_and_log_in();
 
@@ -23,6 +23,15 @@ casper.then(function () {
     casper.click("li[data-section='organization-settings']");
 });
 
+function submit_notifications_stream_settings() {
+    casper.waitUntilVisible('#org-submit-notifications[data-status="unsaved"]', function () {
+        casper.test.assertSelectorHasText('#org-submit-notifications', 'Save');
+    });
+    casper.then(function () {
+        casper.click('#org-submit-notifications');
+    });
+}
+
 // Test changing notifications stream
 casper.then(function () {
     casper.test.info('Changing notifications stream to Verona by filtering with "verona"');
@@ -33,19 +42,20 @@ casper.then(function () {
         casper.click("#id_realm_notifications_stream .dropdown-list-body li.stream_name");
     });
 
-    casper.waitUntilVisible('#admin-realm-notifications-stream-status', function () {
-        casper.test.assertSelectorHasText('#admin-realm-notifications-stream-status',
-                                          'Notifications stream changed!');
-        casper.test.assertSelectorHasText('#realm_notifications_stream_name', '#Verona');
+    submit_notifications_stream_settings();
+
+    casper.waitUntilVisible('#org-submit-notifications[data-status="saved"]', function () {
+        casper.test.assertSelectorHasText('#org-submit-notifications', 'Saved');
     });
 });
 
 casper.then(function () {
-    casper.click(".notifications-stream-disable");
-    casper.waitUntilVisible('#admin-realm-notifications-stream-status', function () {
-        casper.test.assertSelectorHasText('#admin-realm-notifications-stream-status',
-                                          'Notifications stream disabled!');
-        casper.test.assertSelectorHasText('#realm_notifications_stream_name', 'Disabled');
+    casper.click("#notifications_stream_disable");
+
+    submit_notifications_stream_settings();
+
+    casper.waitUntilVisible('#org-submit-notifications[data-status="saved"]', function () {
+        casper.test.assertSelectorHasText('#org-submit-notifications', 'Saved');
     });
 });
 
@@ -59,19 +69,20 @@ casper.then(function () {
         casper.click("#id_realm_signup_notifications_stream .dropdown-list-body li.stream_name");
     });
 
-    casper.waitUntilVisible('#admin-realm-signup-notifications-stream-status', function () {
-        casper.test.assertSelectorHasText('#admin-realm-signup-notifications-stream-status',
-                                          'Signup notifications stream changed!');
-        casper.test.assertSelectorHasText('#realm_signup_notifications_stream_name', '#Verona');
+    submit_notifications_stream_settings();
+
+    casper.waitUntilVisible('#org-submit-notifications[data-status="saved"]', function () {
+        casper.test.assertSelectorHasText('#org-submit-notifications', 'Saved');
     });
 });
 
 casper.then(function () {
-    casper.click(".signup-notifications-stream-disable");
-    casper.waitUntilVisible('#admin-realm-signup-notifications-stream-status', function () {
-        casper.test.assertSelectorHasText('#admin-realm-signup-notifications-stream-status',
-                                          'Signup notifications stream disabled!');
-        casper.test.assertSelectorHasText('#realm_signup_notifications_stream_name', 'Disabled');
+    casper.click("#signup_notifications_stream_disable");
+
+    submit_notifications_stream_settings();
+
+    casper.waitUntilVisible('#org-submit-notifications[data-status="saved"]', function () {
+        casper.test.assertSelectorHasText('#org-submit-notifications', 'Saved');
     });
 });
 
@@ -432,7 +443,7 @@ casper.then(function () {
         }, false);
         casper.click("#realm_icon_upload_button");
         casper.waitWhileVisible("#upload_icon_spinner .loading_indicator_spinner", function () {
-            casper.test.assertExists('img#realm-settings-icon[src^="/user_avatars/1/realm/icon.png?version=2"]');
+            casper.test.assertExists('img#realm-settings-icon[src^="/user_avatars/2/realm/icon.png?version=2"]');
             casper.test.assertEqual(casper.visible('#realm_icon_delete_button'), true);
         });
     });

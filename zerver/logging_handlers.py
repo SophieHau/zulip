@@ -18,7 +18,7 @@ from version import ZULIP_VERSION
 def try_git_describe() -> Optional[str]:
     try:  # nocoverage
         return subprocess.check_output(
-            ['git', 'describe', '--tags', '--always', '--dirty', '--long'],
+            ['git', 'describe', '--tags', '--match=[0-9]*', '--always', '--dirty', '--long'],
             stderr=subprocess.PIPE,
             cwd=os.path.join(os.path.dirname(__file__), '..'),
         ).strip().decode('utf-8')
@@ -61,8 +61,8 @@ def add_request_metadata(report: Dict[str, Any], request: HttpRequest) -> None:
 
     exception_filter = get_exception_reporter_filter(request)
     try:
-        report['data'] = request.GET if request.method == 'GET' else \
-            exception_filter.get_post_parameters(request)
+        report['data'] = exception_filter.get_post_parameters(request) \
+            if request.method == 'POST' else request.GET
     except Exception:
         # exception_filter.get_post_parameters will throw
         # RequestDataTooBig if there's a really big file uploaded

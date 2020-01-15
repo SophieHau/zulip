@@ -1,10 +1,10 @@
-
 from argparse import ArgumentParser
 from typing import Any
 
 from zerver.lib.actions import ensure_stream
 from zerver.lib.management import ZulipBaseCommand
 from zerver.models import DefaultStreamGroup
+
 
 class Command(ZulipBaseCommand):
     help = """

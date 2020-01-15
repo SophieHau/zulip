@@ -8,6 +8,7 @@ from zerver.lib.management import CommandError, ZulipBaseCommand
 from zerver.lib.send_email import FromAddress, send_email
 from zerver.models import UserProfile
 
+
 class Command(ZulipBaseCommand):
     help = """Send email to specified email address."""
 
@@ -26,7 +27,7 @@ class Command(ZulipBaseCommand):
         else:
             realm = self.get_realm(options)
             try:
-                users = self.get_users(options, realm)
+                users = self.get_users(options, realm, is_bot=False)
             except CommandError as error:
                 if str(error) == "You have to pass either -u/--users or -a/--all-users.":
                     raise CommandError("You have to pass -u/--users or -a/--all-users or --entire-server.")
@@ -40,7 +41,7 @@ class Command(ZulipBaseCommand):
         """
         for user_profile in users:
             context = {
-                'email': user_profile.email,
+                'email': user_profile.delivery_email,
                 'reset_url': generate_password_reset_url(user_profile, default_token_generator),
                 'realm_uri': user_profile.realm.uri,
                 'realm_name': user_profile.realm.name,

@@ -1,11 +1,7 @@
-var Dict = require('./dict').Dict;
+const Dict = require('./dict').Dict;
 
-var settings_sections = (function () {
-
-var exports = {};
-
-var load_func_dict = new Dict(); // group -> function
-var is_loaded = new Dict(); // group -> bool
+const load_func_dict = new Dict(); // group -> function
+const is_loaded = new Dict(); // group -> bool
 
 exports.get_group = function (section) {
     // Sometimes several sections all share the same code.
@@ -46,10 +42,11 @@ exports.initialize = function () {
     load_func_dict.set('invites-list-admin', settings_invites.set_up);
     load_func_dict.set('user-groups-admin', settings_user_groups.set_up);
     load_func_dict.set('profile-field-settings', settings_profile_fields.set_up);
+    load_func_dict.set('data-exports-admin', settings_exports.set_up);
 };
 
 exports.load_settings_section = function (section) {
-    var group = exports.get_group(section);
+    const group = exports.get_group(section);
 
     if (!load_func_dict.has(group)) {
         blueslip.error('Unknown section ' + section);
@@ -62,7 +59,7 @@ exports.load_settings_section = function (section) {
         return;
     }
 
-    var load_func = load_func_dict.get(group);
+    const load_func = load_func_dict.get(group);
 
     // Do the real work here!
     load_func();
@@ -72,6 +69,7 @@ exports.load_settings_section = function (section) {
 exports.reset_sections = function () {
     is_loaded.clear();
     settings_emoji.reset();
+    settings_exports.reset();
     settings_linkifiers.reset();
     settings_invites.reset();
     settings_org.reset();
@@ -81,10 +79,4 @@ exports.reset_sections = function () {
     settings_users.reset();
 };
 
-return exports;
-}());
-
-if (typeof module !== 'undefined') {
-    module.exports = settings_sections;
-}
-window.settings_sections = settings_sections;
+window.settings_sections = exports;

@@ -4,9 +4,10 @@ class zulip::base {
     'debian': {
       $release_name = $::operatingsystemrelease ? {
         # Debian releases
-        /^7.[0-9]*/ => 'wheezy',
-        /^8.[0-9]*/ => 'jessie',
-        /^9.[0-9]*/ => 'stretch',
+        /^7\.[0-9]*$/  => 'wheezy',
+        /^8\.[0-9]*$/  => 'jessie',
+        /^9\.[0-9]*$/  => 'stretch',
+        /^10\.[0-9]*$/ => 'buster',
         # Ubuntu releases
         '12.04' => 'precise',
         '14.04' => 'trusty',
@@ -58,6 +59,7 @@ class zulip::base {
     'wheezy'  => '9.1',
     'jessie'  => '9.4',
     'stretch' => '9.6',
+    'buster'  => '11',
     'precise' => '9.1',
     'trusty'  => '9.3',
     'vivid'   => '9.4',
@@ -88,10 +90,18 @@ class zulip::base {
     'user_presence',
   ]
 
-  # We can't use the built-in $memorysize fact because it's a string with human-readable units
-  # Meanwhile $memorysize_mb is a string, and can't be compared with integers in puppet 4.
-  $total_memory = regsubst(file('/proc/meminfo'), '^.*MemTotal:\s*(\d+) kB.*$', '\1', 'M') * 1024
-  $total_memory_mb = $total_memory / 1024 / 1024
+  # $::memorysize_mb is a string in Facter < 3.0 and a double in Facter ≥ 3.0.
+  # Either way, convert it to an integer in one of two ways, both of which are
+  # stupid, depending on the Puppet version.  (╯°□°）╯︵ ┻━┻
+  case $::puppetversion {
+    /^3\./: {
+      $total_memory_mb = 0 + inline_template('<%= @memorysize_mb.to_i %>')
+    }
+    default: {
+      $total_memory_mb_array = scanf("${::memorysize_mb} ", '%i')
+      $total_memory_mb = $total_memory_mb_array[0]
+    }
+  }
 
   group { 'zulip':
     ensure     => present,

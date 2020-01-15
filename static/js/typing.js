@@ -1,5 +1,4 @@
-var typing = (function () {
-var exports = {};
+const typing_status = require("../shared/js/typing_status");
 
 // This module handles the outbound side of typing indicators.
 // We detect changes in the compose box and notify the server
@@ -22,36 +21,17 @@ function send_typing_notification_ajax(user_ids_array, operation) {
 }
 
 function get_user_ids_array() {
-    var user_ids_string = compose_pm_pill.get_user_ids_string();
+    const user_ids_string = compose_pm_pill.get_user_ids_string();
     if (user_ids_string === "") {
-        return;
+        return null;
     }
 
     return people.user_ids_string_to_ids_array(user_ids_string);
 }
 
-function is_valid_conversation(user_ids_string) {
-    // TODO: Check to make sure we're in a PM conversation
-    //       with valid emails.
-    if (!user_ids_string) {
-        return false;
-    }
-
-    if (compose_pm_pill.has_unconverted_data()) {
-        return true;
-    }
-
-    var compose_empty = !compose_state.has_message_content();
+function is_valid_conversation() {
+    const compose_empty = !compose_state.has_message_content();
     if (compose_empty) {
-        return false;
-    }
-
-    if (compose_state.get_message_type() !== 'private') {
-        // We only use typing indicators in PMs for now.
-        // There was originally some support for having
-        // typing indicators related to stream conversations,
-        // but the initial rollout led to users being
-        // confused by them.  We may revisit this.
         return false;
     }
 
@@ -59,22 +39,20 @@ function is_valid_conversation(user_ids_string) {
 }
 
 function get_current_time() {
-    return new Date();
+    return new Date().getTime();
 }
 
-function notify_server_start(user_ids_string) {
-    send_typing_notification_ajax(user_ids_string, "start");
+function notify_server_start(user_ids_array) {
+    send_typing_notification_ajax(user_ids_array, "start");
 }
 
-function notify_server_stop(user_ids_string) {
-    send_typing_notification_ajax(user_ids_string, "stop");
+function notify_server_stop(user_ids_array) {
+    send_typing_notification_ajax(user_ids_array, "stop");
 }
 
 exports.get_recipient = get_user_ids_array;
 exports.initialize = function () {
-    var worker = {
-        get_recipient: exports.get_recipient,
-        is_valid_conversation: is_valid_conversation,
+    const worker = {
         get_current_time: get_current_time,
         notify_server_start: notify_server_start,
         notify_server_stop: notify_server_stop,
@@ -83,20 +61,16 @@ exports.initialize = function () {
     $(document).on('input', '#compose-textarea', function () {
         // If our previous state was no typing notification, send a
         // start-typing notice immediately.
-        typing_status.handle_text_input(worker);
+        const new_recipient =
+          is_valid_conversation() ? exports.get_recipient() : null;
+        typing_status.update(worker, new_recipient);
     });
 
     // We send a stop-typing notification immediately when compose is
     // closed/cancelled
     $(document).on('compose_canceled.zulip compose_finished.zulip', function () {
-        typing_status.stop(worker);
+        typing_status.update(worker, null);
     });
 };
 
-return exports;
-}());
-
-if (typeof module !== 'undefined') {
-    module.exports = typing;
-}
-window.typing = typing;
+window.typing = exports;

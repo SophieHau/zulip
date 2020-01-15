@@ -63,7 +63,7 @@ def REQ_topic() -> Optional[str]:
         aliases=['subject'],
         converter=lambda x: x.strip(),
         default=None,
-    )  # type: ignore # see comment above
+    )
 
 '''
 TRY TO KEEP THIS DIVIDING LINE.
@@ -101,9 +101,11 @@ def messages_for_topic(stream_id: int, topic_name: str) -> QuerySet:
     )
 
 def save_message_for_edit_use_case(message: Message) -> None:
-    message.save(update_fields=["subject", "content", "rendered_content",
+    message.save(update_fields=[TOPIC_NAME, "content", "rendered_content",
                                 "rendered_content_version", "last_edit_time",
-                                "edit_history"])
+                                "edit_history", "has_attachment", "has_image",
+                                "has_link"])
+
 
 def user_message_exists_for_topic(user_profile: UserProfile,
                                   recipient: Recipient,
@@ -119,13 +121,13 @@ def update_messages_for_topic_edit(message: Message,
                                    orig_topic_name: str,
                                    topic_name: str) -> List[Message]:
     propagate_query = Q(recipient = message.recipient, subject = orig_topic_name)
-    # We only change messages up to 2 days in the past, to avoid hammering our
+    # We only change messages up to 7 days in the past, to avoid hammering our
     # DB by changing an unbounded amount of messages
     if propagate_mode == 'change_all':
-        before_bound = timezone_now() - datetime.timedelta(days=2)
+        before_bound = timezone_now() - datetime.timedelta(days=7)
 
         propagate_query = (propagate_query & ~Q(id = message.id) &
-                           Q(pub_date__range=(before_bound, timezone_now())))
+                           Q(date_sent__range=(before_bound, timezone_now())))
     if propagate_mode == 'change_later':
         propagate_query = propagate_query & Q(id__gt = message.id)
 

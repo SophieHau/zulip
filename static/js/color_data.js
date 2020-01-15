@@ -1,11 +1,5 @@
-var Dict = require('./dict').Dict;
-
-var color_data = (function () {
-
-var exports = {};
-
 // These colors are used now for streams.
-var stream_colors = [
+const stream_colors = [
     "#76ce90", "#fae589", "#a6c7e5", "#e79ab5",
     "#bfd56f", "#f4ae55", "#b0a5fd", "#addfe5",
     "#f5ce6e", "#c2726a", "#94c849", "#bd86e5",
@@ -25,7 +19,7 @@ exports.reset = function () {
 exports.reset();
 
 exports.claim_color = function (color) {
-    var i = exports.unused_colors.indexOf(color);
+    const i = exports.unused_colors.indexOf(color);
 
     if (i < 0) {
         return;
@@ -39,31 +33,16 @@ exports.claim_color = function (color) {
 };
 
 exports.claim_colors = function (subs) {
-    var used_colors = new Dict();
-
-    _.each(subs, function (sub) {
-        if (sub.color) {
-            used_colors.set(sub.color, true);
-        }
-    });
-
-    _.each(used_colors.keys(), function (color) {
-        exports.claim_color(color);
-    });
+    const colors = new Set(_.pluck(subs, 'color'));
+    colors.forEach(exports.claim_color);
 };
 
 exports.pick_color = function () {
-    var color = exports.unused_colors[0];
+    const color = exports.unused_colors[0];
 
     exports.claim_color(color);
 
     return color;
 };
 
-return exports;
-
-}());
-if (typeof module !== 'undefined') {
-    module.exports = color_data;
-}
-window.color_data = color_data;
+window.color_data = exports;

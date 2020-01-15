@@ -1,6 +1,4 @@
-var noop = function () {};
-
-var exports = {};
+const noop = function () {};
 
 exports.make_event_store = (selector) => {
     /*
@@ -14,27 +12,27 @@ exports.make_event_store = (selector) => {
        handlers.
 
     */
-    var on_functions = new Dict();
-    var child_on_functions = new Dict();
+    const on_functions = new Map();
+    const child_on_functions = new Map();
 
     function generic_event(event_name, arg) {
         if (typeof arg === 'function') {
             on_functions.set(event_name, arg);
         } else {
-            var handler = on_functions.get(event_name);
+            const handler = on_functions.get(event_name);
             if (!handler) {
-                var error = 'Cannot find ' + event_name + ' handler for ' + selector;
+                const error = 'Cannot find ' + event_name + ' handler for ' + selector;
                 throw Error(error);
             }
             handler(arg);
         }
     }
 
-    var self = {
+    const self = {
         generic_event: generic_event,
 
         get_on_handler: function (name, child_selector) {
-            var handler;
+            let handler;
 
             if (child_selector === undefined) {
                 handler = on_functions.get(name);
@@ -44,7 +42,7 @@ exports.make_event_store = (selector) => {
                 return handler;
             }
 
-            var child_on = child_on_functions.get(child_selector);
+            const child_on = child_on_functions.get(child_selector);
             if (child_on) {
                 handler = child_on.get(name);
             }
@@ -57,10 +55,10 @@ exports.make_event_store = (selector) => {
         },
 
         off: function () {
-            var event_name = arguments[0];
+            const event_name = arguments[0];
 
             if (arguments.length === 1) {
-                on_functions.del(event_name);
+                on_functions.delete(event_name);
                 return;
             }
 
@@ -75,9 +73,8 @@ exports.make_event_store = (selector) => {
             // parameters will either be
             //    (event_name, handler) or
             //    (event_name, sel, handler)
-            var event_name = arguments[0];
-            var sel;
-            var handler;
+            const event_name = arguments[0];
+            let handler;
 
             if (arguments.length === 2) {
                 handler = arguments[1];
@@ -95,11 +92,16 @@ exports.make_event_store = (selector) => {
                 throw Error('wrong number of arguments passed in');
             }
 
-            sel = arguments[1];
+            const sel = arguments[1];
             handler = arguments[2];
             assert.equal(typeof sel, 'string', 'String selectors expected here.');
             assert.equal(typeof handler, 'function', 'An handler function expected here.');
-            var child_on = child_on_functions.setdefault(sel, new Dict());
+
+            if (!child_on_functions.has(sel)) {
+                child_on_functions.set(sel, new Map());
+            }
+
+            const child_on = child_on_functions.get(sel);
 
             if (child_on.has(event_name)) {
                 throw Error('dup ' + event_name + ' handler for ' + selector + ' ' + sel);
@@ -109,8 +111,8 @@ exports.make_event_store = (selector) => {
         },
 
         trigger: function (ev) {
-            var ev_name = typeof ev === 'string' ? ev : ev.name;
-            var func = on_functions.get(ev_name);
+            const ev_name = typeof ev === 'string' ? ev : ev.name;
+            const func = on_functions.get(ev_name);
 
             if (!func) {
                 // It's possible that test code will trigger events
@@ -129,21 +131,21 @@ exports.make_event_store = (selector) => {
 };
 
 exports.make_new_elem = function (selector, opts) {
-    var html = 'never-been-set';
-    var text = 'never-been-set';
-    var value;
-    var css;
-    var shown = false;
-    var focused = false;
-    var find_results = new Dict();
-    var my_parent;
-    var parents_result = new Dict();
-    var properties = new Dict();
-    var attrs = new Dict();
-    var classes = new Dict();
-    var event_store = exports.make_event_store(selector);
+    let html = 'never-been-set';
+    let text = 'never-been-set';
+    let value;
+    let css;
+    let shown = false;
+    let focused = false;
+    const find_results = new Map();
+    let my_parent;
+    const parents_result = new Map();
+    const properties = new Map();
+    const attrs = new Map();
+    const classes = new Map();
+    const event_store = exports.make_event_store(selector);
 
-    var self = {
+    const self = {
         addClass: function (class_name) {
             classes.set(class_name, true);
             return self;
@@ -164,8 +166,8 @@ exports.make_new_elem = function (selector, opts) {
             return self;
         },
         closest: function (selector) {
-            var elem = self;
-            var search = selector.startsWith('.') || selector.startsWith('#') ? selector.substring(1) : selector;
+            const elem = self;
+            const search = selector.startsWith('.') || selector.startsWith('#') ? selector.substring(1) : selector;
             if (elem.selector.indexOf(search) > -1) {
                 return elem;
             } else if (parents_result.get(selector)) {
@@ -175,7 +177,17 @@ exports.make_new_elem = function (selector, opts) {
             }
             return elem.parent().closest(selector);
         },
-        data: noop,
+        data: function (name, val) {
+            if (val === undefined) {
+                const data_val = attrs.get('data-' + name);
+                if (data_val === undefined) {
+                    return;
+                }
+                return JSON.parse(data_val);
+            }
+            attrs.set('data-' + name, val);
+            return self;
+        },
         delay: function () {
             return self;
         },
@@ -201,7 +213,7 @@ exports.make_new_elem = function (selector, opts) {
         },
         fadeTo: noop,
         find: function (child_selector) {
-            var child = find_results.get(child_selector);
+            const child = find_results.get(child_selector);
             if (child) {
                 return child;
             }
@@ -279,7 +291,7 @@ exports.make_new_elem = function (selector, opts) {
             return my_parent;
         },
         parents: function (parents_selector) {
-            var result = parents_result.get(parents_selector);
+            const result = parents_result.get(parents_selector);
             assert(result, 'You need to call set_parents_result for ' +
                             parents_selector + ' in ' + selector);
             return result;
@@ -292,13 +304,13 @@ exports.make_new_elem = function (selector, opts) {
             return self;
         },
         removeAttr: function (name) {
-            attrs.del(name);
+            attrs.delete(name);
             return self;
         },
         removeClass: function (class_names) {
             class_names = class_names.split(' ');
             class_names.forEach(function (class_name) {
-                classes.del(class_name);
+                classes.delete(class_name);
             });
             return self;
         },
@@ -381,10 +393,10 @@ exports.make_new_elem = function (selector, opts) {
 exports.make_zjquery = function (opts) {
     opts = opts || {};
 
-    var elems = {};
+    let elems = {};
 
     // Our fn structure helps us simulate extending jQuery.
-    var fn = {};
+    const fn = {};
 
     function add_extensions(obj) {
         _.each(fn, (v, k) => {
@@ -393,7 +405,7 @@ exports.make_zjquery = function (opts) {
     }
 
     function new_elem(selector) {
-        var elem = exports.make_new_elem(selector, {
+        const elem = exports.make_new_elem(selector, {
             silent: opts.silent,
         });
         add_extensions(elem);
@@ -403,13 +415,13 @@ exports.make_zjquery = function (opts) {
         // For context, zjquery doesn't implement every method/attribute
         // that you'd find on a "real" jQuery object.  Sometimes we
         // expects devs to create their own stubs.
-        var handler = {
+        const handler = {
             get: (target, key) => {
                 // Handle the special case of equality checks, which
                 // we can infer by assert.equal trying to access the
                 // "stack" key.
                 if (key === 'stack') {
-                    var error = '\nInstead of doing equality checks on a full object, ' +
+                    const error = '\nInstead of doing equality checks on a full object, ' +
                         'do `assert_equal(foo.selector, ".some_class")\n';
                     throw Error(error);
                 }
@@ -434,12 +446,12 @@ exports.make_zjquery = function (opts) {
             },
         };
 
-        var proxy = new Proxy(elem, handler);
+        const proxy = new Proxy(elem, handler);
 
         return proxy;
     }
 
-    var zjquery = function (arg, arg2) {
+    const zjquery = function (arg, arg2) {
         if (typeof arg === "function") {
             // If somebody is passing us a function, we emulate
             // jQuery's behavior of running this function after
@@ -472,14 +484,14 @@ exports.make_zjquery = function (opts) {
             throw Error("We only use one-argument variations of $(...) in Zulip code.");
         }
 
-        var selector = arg;
+        const selector = arg;
 
         if (typeof selector !== "string") {
             console.info(arg);
             throw Error("zjquery does not know how to wrap this object yet");
         }
 
-        var valid_selector =
+        const valid_selector =
             '<#.'.indexOf(selector[0]) >= 0 ||
             selector === 'window-stub' ||
             selector === 'document-stub' ||
@@ -496,7 +508,7 @@ exports.make_zjquery = function (opts) {
 
 
         if (elems[selector] === undefined) {
-            var elem = new_elem(selector);
+            const elem = new_elem(selector);
             elems[selector] = elem;
         }
         return elems[selector];
@@ -505,7 +517,7 @@ exports.make_zjquery = function (opts) {
     zjquery.create = function (name)  {
         assert(!elems[name],
                'You already created an object with this name!!');
-        var elem = new_elem(name);
+        const elem = new_elem(name);
         elems[name] = elem;
         return elems[name];
     };
@@ -518,7 +530,7 @@ exports.make_zjquery = function (opts) {
 
     zjquery.state = function () {
         // useful for debugging
-        var res =  _.map(elems, function (v) {
+        let res =  _.map(elems, function (v) {
             return v.debug();
         });
 
@@ -550,5 +562,3 @@ exports.make_zjquery = function (opts) {
 
     return zjquery;
 };
-
-module.exports = exports;

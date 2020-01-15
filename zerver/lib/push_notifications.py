@@ -7,7 +7,7 @@ import lxml.html
 import re
 import time
 
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -15,7 +15,6 @@ from django.db.models import F
 from django.utils.timezone import now as timezone_now
 from django.utils.translation import ugettext as _
 import gcm
-import requests
 import ujson
 
 from zerver.decorator import statsd_increment
@@ -23,7 +22,6 @@ from zerver.lib.avatar import absolute_avatar_url
 from zerver.lib.exceptions import JsonableError
 from zerver.lib.message import access_message, \
     bulk_access_messages_expect_usermessage, huddle_users
-from zerver.lib.queue import retry_event
 from zerver.lib.remote_server import send_to_push_bouncer, send_json_to_push_bouncer
 from zerver.lib.timestamp import datetime_to_timestamp
 from zerver.models import PushDeviceToken, Message, Recipient, \
@@ -31,6 +29,9 @@ from zerver.models import PushDeviceToken, Message, Recipient, \
     get_display_recipient, receives_offline_push_notifications, \
     receives_online_notifications, get_user_profile_by_id, \
     ArchivedMessage
+
+if TYPE_CHECKING:
+    from apns2.client import APNsClient
 
 logger = logging.getLogger(__name__)
 
@@ -43,20 +44,20 @@ else:  # nocoverage  -- Not convenient to add test for this.
 DeviceToken = Union[PushDeviceToken, RemotePushDeviceToken]
 
 # We store the token as b64, but apns-client wants hex strings
-def b64_to_hex(data: bytes) -> str:
+def b64_to_hex(data: str) -> str:
     return binascii.hexlify(base64.b64decode(data)).decode('utf-8')
 
-def hex_to_b64(data: str) -> bytes:
-    return base64.b64encode(binascii.unhexlify(data.encode('utf-8')))
+def hex_to_b64(data: str) -> str:
+    return base64.b64encode(binascii.unhexlify(data)).decode()
 
 #
 # Sending to APNs, for iOS
 #
 
-_apns_client = None  # type: Optional[Any]
+_apns_client = None  # type: Optional[APNsClient]
 _apns_client_initialized = False
 
-def get_apns_client() -> Any:
+def get_apns_client() -> 'Optional[APNsClient]':
     # We lazily do this import as part of optimizing Zulip's base
     # import time.
     from apns2.client import APNsClient
@@ -110,10 +111,9 @@ def send_apple_push_notification(user_id: int, devices: List[DeviceToken],
     # notification queue worker, it's best to only import them in the
     # code that needs them.
     from apns2.payload import Payload as APNsPayload
-    from apns2.client import APNsClient
     from hyper.http20.exceptions import HTTP20Error
 
-    client = get_apns_client()  # type: APNsClient
+    client = get_apns_client()
     if client is None:
         logger.debug("APNs: Dropping a notification because nothing configured.  "
                      "Set PUSH_NOTIFICATION_BOUNCER_URL (or APNS_CERT_FILE).")
@@ -135,7 +135,7 @@ def send_apple_push_notification(user_id: int, devices: List[DeviceToken],
         def attempt_send() -> Optional[str]:
             try:
                 stream_id = client.send_notification_async(
-                    device.token, payload, topic='org.zulip.Zulip',
+                    device.token, payload, topic=settings.APNS_TOPIC,
                     expiration=expiration)
                 return client.get_notification_result(stream_id)
             except HTTP20Error as e:
@@ -161,7 +161,7 @@ def send_apple_push_notification(user_id: int, devices: List[DeviceToken],
         if result[0] == "Unregistered":
             # For some reason, "Unregistered" result values have a
             # different format, as a tuple of the pair ("Unregistered", 12345132131).
-            result = result[0]  # type: ignore # APNS API is inconsistent
+            result = result[0]
         if result == 'Success':
             logger.info("APNs: Success sending for user %d to device %s",
                         user_id, device.token)
@@ -223,7 +223,7 @@ def parse_gcm_options(options: Dict[str, Any], data: Dict[str, Any]) -> str:
     Including unrecognized options is an error.
 
     For details on options' semantics, see this GCM upstream doc:
-      https://developers.google.com/cloud-messaging/http-server-ref
+      https://firebase.google.com/docs/cloud-messaging/http-server-ref
 
     Returns `priority`.
     """
@@ -253,7 +253,7 @@ def send_android_push_notification(devices: List[DeviceToken], data: Dict[str, A
     """
     Send a GCM message to the given devices.
 
-    See https://developers.google.com/cloud-messaging/http-server-ref
+    See https://firebase.google.com/docs/cloud-messaging/http-server-ref
     for the GCM upstream API which this talks to.
 
     data: The JSON object (decoded) to send as the 'data' parameter of
@@ -269,7 +269,7 @@ def send_android_push_notification(devices: List[DeviceToken], data: Dict[str, A
     reg_ids = [device.token for device in devices]
     priority = parse_gcm_options(options, data)
     try:
-        # See https://developers.google.com/cloud-messaging/http-server-ref .
+        # See https://firebase.google.com/docs/cloud-messaging/http-server-ref .
         # Two kwargs `retries` and `session` get eaten by `json_request`;
         # the rest pass through to the GCM server.
         res = gcm_client.json_request(registration_ids=reg_ids,
@@ -360,7 +360,7 @@ def num_push_devices_for_user(user_profile: UserProfile, kind: Optional[int]=Non
         return PushDeviceToken.objects.filter(user=user_profile, kind=kind).count()
 
 def add_push_device_token(user_profile: UserProfile,
-                          token_str: bytes,
+                          token_str: str,
                           kind: int,
                           ios_app_id: Optional[str]=None) -> None:
     logger.info("Registering push device: %d %r %d %r",
@@ -396,7 +396,7 @@ def add_push_device_token(user_profile: UserProfile,
     except IntegrityError:
         pass
 
-def remove_push_device_token(user_profile: UserProfile, token_str: bytes, kind: int) -> None:
+def remove_push_device_token(user_profile: UserProfile, token_str: str, kind: int) -> None:
 
     # If we're sending things to the push notification bouncer
     # unregister this user with them here
@@ -417,6 +417,18 @@ def remove_push_device_token(user_profile: UserProfile, token_str: bytes, kind: 
         token.delete()
     except PushDeviceToken.DoesNotExist:
         raise JsonableError(_("Token does not exist"))
+
+def clear_push_device_tokens(user_profile_id: int) -> None:
+    # Deletes all of a user's PushDeviceTokens.
+    if uses_notification_bouncer():
+        post_data = {
+            'server_uuid': settings.ZULIP_ORG_ID,
+            'user_id': user_profile_id,
+        }
+        send_to_push_bouncer("POST", "push/unregister/all", post_data)
+        return
+
+    PushDeviceToken.objects.filter(user_id=user_profile_id).delete()
 
 #
 # Push notifications in general
@@ -456,7 +468,8 @@ def get_gcm_alert(message: Message) -> str:
         return "New private group message from %s" % (sender_str,)
     elif message.recipient.type == Recipient.PERSONAL and message.trigger == 'private_message':
         return "New private message from %s" % (sender_str,)
-    elif message.is_stream_message() and message.trigger == 'mentioned':
+    elif message.is_stream_message() and (message.trigger == 'mentioned' or
+                                          message.trigger == 'wildcard_mentioned'):
         return "New mention from %s" % (sender_str,)
     else:  # message.is_stream_message() and message.trigger == 'stream_push_notify'
         return "New stream message from %s in %s" % (sender_str, get_display_recipient(message.recipient),)
@@ -486,15 +499,31 @@ def get_mobile_push_content(rendered_content: str) -> str:
         quote_text += '\n'
         return quote_text
 
+    def render_olist(ol: lxml.html.HtmlElement) -> str:
+        items = []
+        counter = int(ol.get('start')) if ol.get('start') else 1
+        nested_levels = len(list(ol.iterancestors('ol')))
+        indent = ('\n' + '  ' * nested_levels) if nested_levels else ''
+
+        for li in ol:
+            items.append(indent + str(counter) + '. ' + process(li).strip())
+            counter += 1
+
+        return '\n'.join(items)
+
     def process(elem: lxml.html.HtmlElement) -> str:
-        plain_text = get_text(elem)
-        sub_text = ''
-        for child in elem:
-            sub_text += process(child)
-        if elem.tag == 'blockquote':
-            sub_text = format_as_quote(sub_text)
-        plain_text += sub_text
-        plain_text += elem.tail or ""
+        plain_text = ''
+        if elem.tag == 'ol':
+            plain_text = render_olist(elem)
+        else:
+            plain_text = get_text(elem)
+            sub_text = ''
+            for child in elem:
+                sub_text += process(child)
+            if elem.tag == 'blockquote':
+                sub_text = format_as_quote(sub_text)
+            plain_text += sub_text
+            plain_text += elem.tail or ""
         return plain_text
 
     if settings.PUSH_NOTIFICATION_REDACT_CONTENT:
@@ -550,7 +579,8 @@ def get_apns_alert_title(message: Message) -> str:
     On an iOS notification, this is the first bolded line.
     """
     if message.recipient.type == Recipient.HUDDLE:
-        recipients = cast(List[Dict[str, Any]], get_display_recipient(message.recipient))
+        recipients = get_display_recipient(message.recipient)
+        assert isinstance(recipients, list)
         return ', '.join(sorted(r['full_name'] for r in recipients))
     elif message.is_stream_message():
         return "#%s > %s" % (get_display_recipient(message.recipient), message.topic_name(),)
@@ -562,7 +592,9 @@ def get_apns_alert_subtitle(message: Message) -> str:
     On an iOS notification, this is the second bolded line.
     """
     if message.trigger == "mentioned":
-        return message.sender.full_name + " mentioned you:"
+        return _("%(full_name)s mentioned you:") % dict(full_name=message.sender.full_name)
+    elif message.trigger == "wildcard_mentioned":
+        return _("%(full_name)s mentioned everyone:") % dict(full_name=message.sender.full_name)
     elif message.recipient.type == Recipient.PERSONAL:
         return ""
     # For group PMs, or regular messages to a stream, just use a colon to indicate this is the sender.
@@ -598,7 +630,7 @@ def get_message_payload_gcm(
         'event': 'message',
         'alert': get_gcm_alert(message),
         'zulip_message_id': message.id,  # message_id is reserved for CCS
-        'time': datetime_to_timestamp(message.pub_date),
+        'time': datetime_to_timestamp(message.date_sent),
         'content': content,
         'content_truncated': truncated,
         'sender_full_name': message.sender.full_name,
@@ -634,16 +666,10 @@ def handle_remove_push_notification(user_profile_id: int, message_ids: List[int]
     gcm_payload, gcm_options = get_remove_payload_gcm(user_profile, message_ids)
 
     if uses_notification_bouncer():
-        try:
-            send_notifications_to_bouncer(user_profile_id,
-                                          {},
-                                          gcm_payload,
-                                          gcm_options)
-        except requests.ConnectionError:  # nocoverage
-            def failure_processor(event: Dict[str, Any]) -> None:
-                logger.warning(
-                    "Maximum retries exceeded for trigger:%s event:push_notification" % (
-                        event['user_profile_id'],))
+        send_notifications_to_bouncer(user_profile_id,
+                                      {},
+                                      gcm_payload,
+                                      gcm_options)
     else:
         android_devices = list(PushDeviceToken.objects.filter(
             user=user_profile, kind=PushDeviceToken.GCM))
@@ -712,18 +738,10 @@ def handle_push_notification(user_profile_id: int, missed_message: Dict[str, Any
     logger.info("Sending push notifications to mobile clients for user %s" % (user_profile_id,))
 
     if uses_notification_bouncer():
-        try:
-            send_notifications_to_bouncer(user_profile_id,
-                                          apns_payload,
-                                          gcm_payload,
-                                          gcm_options)
-        except requests.ConnectionError:
-            def failure_processor(event: Dict[str, Any]) -> None:
-                logger.warning(
-                    "Maximum retries exceeded for trigger:%s event:push_notification" % (
-                        event['user_profile_id'],))
-            retry_event('missedmessage_mobile_notifications', missed_message,
-                        failure_processor)
+        send_notifications_to_bouncer(user_profile_id,
+                                      apns_payload,
+                                      gcm_payload,
+                                      gcm_options)
         return
 
     android_devices = list(PushDeviceToken.objects.filter(user=user_profile,

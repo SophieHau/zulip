@@ -8,15 +8,6 @@ class zulip::postgres_appdb_base {
     'debian': {
       include zulip::apt_repository
       $postgresql = "postgresql-${zulip::base::postgres_version}"
-      $appdb_packages = [
-        # Needed for our full text search system
-        "${postgresql}-tsearch-extras",
-      ]
-      zulip::safepackage {
-        $appdb_packages:
-          ensure  => 'installed',
-          require => Exec['setup_apt_repo'],
-      }
       $postgres_sharedir = "/usr/share/postgresql/${zulip::base::postgres_version}"
       $tsearch_datadir = "${postgres_sharedir}/tsearch_data"
       $pgroonga_setup_sql_path = "${postgres_sharedir}/pgroonga_setup.sql"
@@ -25,10 +16,6 @@ class zulip::postgres_appdb_base {
     'redhat': {
       include zulip::yum_repository
       $postgresql = "postgresql${zulip::base::postgres_version}"
-      exec {'build_tsearch_extras':
-        command => "bash -c ${::zulip_scripts_path}/lib/build-tsearch-extras",
-        creates => "/usr/pgsql-${zulip::base::postgres_version}/lib/tsearch_extras.so",
-      }
       $postgres_sharedir = "/usr/pgsql-${zulip::base::postgres_version}/share"
       $tsearch_datadir = "${postgres_sharedir}/tsearch_data/"
       $pgroonga_setup_sql_path = "${postgres_sharedir}/pgroonga_setup.sql"

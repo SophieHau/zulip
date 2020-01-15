@@ -19,9 +19,10 @@ from zerver.models import UserProfile, Recipient, Realm, \
     get_user, get_realm, get_stream, get_stream_recipient, \
     get_source_profile, get_system_bot, \
     ScheduledEmail, check_valid_user_ids, \
-    get_user_by_id_in_realm_including_cross_realm, CustomProfileField
+    get_user_by_id_in_realm_including_cross_realm, CustomProfileField, \
+    InvalidFakeEmailDomain, get_fake_email_domain, get_personal_recipient
 
-from zerver.lib.avatar import avatar_url
+from zerver.lib.avatar import avatar_url, get_gravatar_url
 from zerver.lib.exceptions import JsonableError
 from zerver.lib.send_email import send_future_email, clear_scheduled_emails, \
     deliver_email
@@ -42,6 +43,7 @@ from zerver.lib.users import user_ids_to_users, access_user_by_id, \
     get_accounts_for_email
 
 from django.conf import settings
+from django.test import override_settings
 
 import datetime
 import mock
@@ -72,6 +74,33 @@ class PermissionTest(ZulipTestCase):
         # this should "fail" with an AssertionError
         with self.assertRaises(AssertionError):
             do_change_is_admin(user_profile, True, permission='totally-not-valid-perm')
+
+    def test_role_setters(self) -> None:
+        user_profile = self.example_user('hamlet')
+
+        user_profile.is_realm_admin = True
+        self.assertEqual(user_profile.is_realm_admin, True)
+        self.assertEqual(user_profile.role, UserProfile.ROLE_REALM_ADMINISTRATOR)
+
+        user_profile.is_guest = False
+        self.assertEqual(user_profile.is_guest, False)
+        self.assertEqual(user_profile.role, UserProfile.ROLE_REALM_ADMINISTRATOR)
+
+        user_profile.is_realm_admin = False
+        self.assertEqual(user_profile.is_realm_admin, False)
+        self.assertEqual(user_profile.role, UserProfile.ROLE_MEMBER)
+
+        user_profile.is_guest = True
+        self.assertEqual(user_profile.is_guest, True)
+        self.assertEqual(user_profile.role, UserProfile.ROLE_GUEST)
+
+        user_profile.is_realm_admin = False
+        self.assertEqual(user_profile.is_guest, True)
+        self.assertEqual(user_profile.role, UserProfile.ROLE_GUEST)
+
+        user_profile.is_guest = False
+        self.assertEqual(user_profile.is_guest, False)
+        self.assertEqual(user_profile.role, UserProfile.ROLE_MEMBER)
 
     def test_get_admin_users(self) -> None:
         user_profile = self.example_user('hamlet')
@@ -192,7 +221,10 @@ class PermissionTest(ZulipTestCase):
         members = result.json()['members']
         hamlet = find_dict(members, 'user_id', user.id)
         self.assertEqual(hamlet['email'], "user%s@zulip.testserver" % (user.id,))
-        self.assertEqual(hamlet['avatar_url'], "https://secure.gravatar.com/avatar/5106fb7f928d89e2f2ddb3c4c42d6949?d=identicon&version=1")
+        # Note that the Gravatar URL should still be computed from the
+        # `delivery_email`; otherwise, we won't be able to serve the
+        # user's Gravatar.
+        self.assertEqual(hamlet['avatar_url'], get_gravatar_url(user.delivery_email, 1))
         self.assertNotIn('delivery_email', hamlet)
 
         # Also verify the /events code path.  This is a bit hacky, but
@@ -217,7 +249,7 @@ class PermissionTest(ZulipTestCase):
         members = result.json()['members']
         hamlet = find_dict(members, 'user_id', user.id)
         self.assertEqual(hamlet['email'], "user%s@zulip.testserver" % (user.id,))
-        self.assertEqual(hamlet['avatar_url'], "https://secure.gravatar.com/avatar/5106fb7f928d89e2f2ddb3c4c42d6949?d=identicon&version=1")
+        self.assertEqual(hamlet['avatar_url'], get_gravatar_url(user.email, 1))
         self.assertEqual(hamlet['delivery_email'], self.example_email("hamlet"))
 
     def test_user_cannot_promote_to_admin(self) -> None:
@@ -401,10 +433,6 @@ class PermissionTest(ZulipTestCase):
         self.assertEqual(person['email'], polonius.email)
         self.assertTrue(person['is_admin'])
 
-        person = events[1]['event']['person']
-        self.assertEqual(person['email'], polonius.email)
-        self.assertFalse(person['is_guest'])
-
     def test_admin_user_can_change_profile_data(self) -> None:
         realm = get_realm('zulip')
         self.login(self.example_email("iago"))
@@ -437,8 +465,7 @@ class PermissionTest(ZulipTestCase):
         cordelia = self.example_user("cordelia")
         for field_dict in cordelia.profile_data:
             with self.subTest(field_name=field_dict['name']):
-                self.assertEqual(field_dict['value'], fields[field_dict['name']])  # type: ignore # Reason in comment
-            # Invalid index type for dict key, it must be str but field_dict values can be anything
+                self.assertEqual(field_dict['value'], fields[field_dict['name']])
 
         # Test admin user cannot set invalid profile data
         invalid_fields = [
@@ -603,6 +630,11 @@ class AdminCreateUserTest(ZulipTestCase):
             full_name='Romeo Montague',
             short_name='Romeo',
         )
+        # Check can't use a bad password with zxcvbn enabled
+        with self.settings(PASSWORD_MIN_LENGTH=6, PASSWORD_MIN_GUESSES=1000):
+            result = self.client_post("/json/users", valid_params)
+            self.assert_json_error(result, "The password is too weak.")
+
         result = self.client_post("/json/users", valid_params)
         self.assert_json_success(result)
 
@@ -610,6 +642,9 @@ class AdminCreateUserTest(ZulipTestCase):
         new_user = get_user('romeo@zulip.net', get_realm('zulip'))
         self.assertEqual(new_user.full_name, 'Romeo Montague')
         self.assertEqual(new_user.short_name, 'Romeo')
+
+        # Make sure the recipient field is set correctly.
+        self.assertEqual(new_user.recipient, get_personal_recipient(new_user.id))
 
         # we can't create the same user twice.
         result = self.client_post("/json/users", valid_params)
@@ -787,7 +822,7 @@ class UserProfileTest(ZulipTestCase):
         hamlet = self.example_user("hamlet")
 
         cordelia.default_language = "de"
-        cordelia.emojiset = "apple"
+        cordelia.emojiset = "twitter"
         cordelia.timezone = "America/Phoenix"
         cordelia.night_mode = True
         cordelia.enable_offline_email_notifications = False
@@ -812,8 +847,8 @@ class UserProfileTest(ZulipTestCase):
         self.assertEqual(cordelia.default_language, "de")
         self.assertEqual(hamlet.default_language, "en")
 
-        self.assertEqual(iago.emojiset, "apple")
-        self.assertEqual(cordelia.emojiset, "apple")
+        self.assertEqual(iago.emojiset, "twitter")
+        self.assertEqual(cordelia.emojiset, "twitter")
         self.assertEqual(hamlet.emojiset, "google-blob")
 
         self.assertEqual(iago.timezone, "America/Phoenix")
@@ -995,6 +1030,16 @@ class RecipientInfoTest(ZulipTestCase):
         cordelia = self.example_user('cordelia')
         othello = self.example_user('othello')
 
+        # These tests were written with the old default for
+        # enable_online_push_notifications; that default is better for
+        # testing the full code path anyway.
+        hamlet.enable_online_push_notifications = False
+        cordelia.enable_online_push_notifications = False
+        othello.enable_online_push_notifications = False
+        hamlet.save()
+        cordelia.save()
+        othello.save()
+
         realm = hamlet.realm
 
         stream_name = 'Test Stream'
@@ -1015,6 +1060,7 @@ class RecipientInfoTest(ZulipTestCase):
             recipient=recipient,
             sender_id=hamlet.id,
             stream_topic=stream_topic,
+            possible_wildcard_mention=False,
         )
 
         all_user_ids = {hamlet.id, cordelia.id, othello.id}
@@ -1024,6 +1070,7 @@ class RecipientInfoTest(ZulipTestCase):
             push_notify_user_ids=set(),
             stream_push_user_ids=set(),
             stream_email_user_ids=set(),
+            wildcard_mention_user_ids=set(),
             um_eligible_user_ids=all_user_ids,
             long_term_idle_user_ids=set(),
             default_bot_user_ids=set(),
@@ -1032,14 +1079,26 @@ class RecipientInfoTest(ZulipTestCase):
 
         self.assertEqual(info, expected_info)
 
+        cordelia.wildcard_mentions_notify = False
+        cordelia.save()
         hamlet.enable_stream_push_notifications = True
         hamlet.save()
         info = get_recipient_info(
             recipient=recipient,
             sender_id=hamlet.id,
             stream_topic=stream_topic,
+            possible_wildcard_mention=False,
         )
         self.assertEqual(info['stream_push_user_ids'], {hamlet.id})
+        self.assertEqual(info['wildcard_mention_user_ids'], set())
+
+        info = get_recipient_info(
+            recipient=recipient,
+            sender_id=hamlet.id,
+            stream_topic=stream_topic,
+            possible_wildcard_mention=True,
+        )
+        self.assertEqual(info['wildcard_mention_user_ids'], {hamlet.id, othello.id})
 
         sub = get_subscription(stream_name, hamlet)
         sub.push_notifications = False
@@ -1075,9 +1134,49 @@ class RecipientInfoTest(ZulipTestCase):
             recipient=recipient,
             sender_id=hamlet.id,
             stream_topic=stream_topic,
+            possible_wildcard_mention=False,
         )
-
         self.assertEqual(info['stream_push_user_ids'], set())
+        self.assertEqual(info['wildcard_mention_user_ids'], set())
+
+        info = get_recipient_info(
+            recipient=recipient,
+            sender_id=hamlet.id,
+            stream_topic=stream_topic,
+            possible_wildcard_mention=True,
+        )
+        self.assertEqual(info['stream_push_user_ids'], set())
+        # Since Hamlet has muted the stream and Cordelia has disabled
+        # wildcard notifications, it should just be Othello here.
+        self.assertEqual(info['wildcard_mention_user_ids'], {othello.id})
+
+        sub = get_subscription(stream_name, othello)
+        sub.wildcard_mentions_notify = False
+        sub.save()
+
+        info = get_recipient_info(
+            recipient=recipient,
+            sender_id=hamlet.id,
+            stream_topic=stream_topic,
+            possible_wildcard_mention=True,
+        )
+        self.assertEqual(info['stream_push_user_ids'], set())
+        # Verify that stream-level wildcard_mentions_notify=False works correctly.
+        self.assertEqual(info['wildcard_mention_user_ids'], set())
+
+        # Verify that True works as expected as well
+        sub = get_subscription(stream_name, othello)
+        sub.wildcard_mentions_notify = True
+        sub.save()
+
+        info = get_recipient_info(
+            recipient=recipient,
+            sender_id=hamlet.id,
+            stream_topic=stream_topic,
+            possible_wildcard_mention=True,
+        )
+        self.assertEqual(info['stream_push_user_ids'], set())
+        self.assertEqual(info['wildcard_mention_user_ids'], {othello.id})
 
         # Add a service bot.
         service_bot = do_create_user(
@@ -1273,3 +1372,14 @@ class GetProfileTest(ZulipTestCase):
                     user['avatar_url'],
                     avatar_url(user_profile),
                 )
+
+class FakeEmailDomainTest(ZulipTestCase):
+    @override_settings(FAKE_EMAIL_DOMAIN="invaliddomain")
+    def test_invalid_fake_email_domain(self) -> None:
+        with self.assertRaises(InvalidFakeEmailDomain):
+            get_fake_email_domain()
+
+    @override_settings(FAKE_EMAIL_DOMAIN="127.0.0.1")
+    def test_invalid_fake_email_domain_ip(self) -> None:
+        with self.assertRaises(InvalidFakeEmailDomain):
+            get_fake_email_domain()

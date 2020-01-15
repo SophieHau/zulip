@@ -20,7 +20,7 @@ from zerver.lib.utils import generate_random_token
 from zerver.models import Realm, UserProfile, RealmAuditLog
 from corporate.models import Customer, CustomerPlan, LicenseLedger, \
     get_current_plan
-from zproject.settings import get_secret
+from zproject.config import get_secret
 
 STRIPE_PUBLISHABLE_KEY = get_secret('stripe_publishable_key')
 stripe.api_key = get_secret('stripe_secret_key')
@@ -38,11 +38,11 @@ CallableT = TypeVar('CallableT', bound=Callable[..., Any])
 MIN_INVOICED_LICENSES = 30
 DEFAULT_INVOICE_DAYS_UNTIL_DUE = 30
 
-def get_seat_count(realm: Realm) -> int:
+def get_latest_seat_count(realm: Realm) -> int:
     non_guests = UserProfile.objects.filter(
-        realm=realm, is_active=True, is_bot=False, is_guest=False).count()
+        realm=realm, is_active=True, is_bot=False).exclude(role=UserProfile.ROLE_GUEST).count()
     guests = UserProfile.objects.filter(
-        realm=realm, is_active=True, is_bot=False, is_guest=True).count()
+        realm=realm, is_active=True, is_bot=False, role=UserProfile.ROLE_GUEST).count()
     return max(non_guests, math.ceil(guests / 5))
 
 def sign_string(string: str) -> Tuple[str, str]:
@@ -178,7 +178,7 @@ def do_create_stripe_customer(user: UserProfile, stripe_token: Optional[str]=Non
     # customer that we can delete or ignore.
     stripe_customer = stripe.Customer.create(
         description="%s (%s)" % (realm.string_id, realm.name),
-        email=user.email,
+        email=user.delivery_email,
         metadata={'realm_id': realm.id, 'realm_str': realm.string_id},
         source=stripe_token)
     event_time = timestamp_to_datetime(stripe_customer.created)
@@ -298,7 +298,7 @@ def process_initial_upgrade(user: UserProfile, licenses: int, automanage_license
             currency='usd',
             customer=customer.stripe_customer_id,
             description="Upgrade to Zulip Standard, ${} x {}".format(price_per_license/100, licenses),
-            receipt_email=user.email,
+            receipt_email=user.delivery_email,
             statement_descriptor='Zulip Standard')
         # Not setting a period start and end, but maybe we should? Unclear what will make things
         # most similar to the renewal case from an accounting perspective.
@@ -314,7 +314,7 @@ def process_initial_upgrade(user: UserProfile, licenses: int, automanage_license
     with transaction.atomic():
         # billed_licenses can greater than licenses if users are added between the start of
         # this function (process_initial_upgrade) and now
-        billed_licenses = max(get_seat_count(realm), licenses)
+        billed_licenses = max(get_latest_seat_count(realm), licenses)
         plan_params = {
             'automanage_licenses': automanage_licenses,
             'charge_automatically': charge_automatically,
@@ -371,7 +371,7 @@ def update_license_ledger_for_automanaged_plan(realm: Realm, plan: CustomerPlan,
     last_ledger_entry = make_end_of_cycle_updates_if_needed(plan, event_time)
     if last_ledger_entry is None:
         return
-    licenses_at_next_renewal = get_seat_count(realm)
+    licenses_at_next_renewal = get_latest_seat_count(realm)
     licenses = max(licenses_at_next_renewal, last_ledger_entry.licenses)
     LicenseLedger.objects.create(
         plan=plan, event_time=event_time, licenses=licenses,

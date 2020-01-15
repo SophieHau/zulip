@@ -92,12 +92,12 @@ the backend, but does in JavaScript.
 
 For the third-party services like Postgres, Redis, Nginx, and RabbitMQ
 that are documented in the
-[architecture overview](../overview/architecture-overview.html), we rely on the
+[architecture overview](../overview/architecture-overview.md), we rely on the
 versions of those packages provided alongside the Linux distribution
 on which Zulip is deployed.  Because Zulip
-[only supports Ubuntu in production](../production/requirements.html), this
+[only supports Ubuntu in production](../production/requirements.md), this
 usually means `apt`, though we do support
-[other platforms in development](../development/setup-advanced.html).  Since
+[other platforms in development](../development/setup-advanced.md).  Since
 we don't control the versions of these dependencies, we avoid relying
 on specific versions of these packages wherever possible.
 
@@ -113,14 +113,8 @@ few places:
   install other dependencies, and (2) because that list is shared
   between development and production.
 
-We maintain a [PPA (personal package archive)][ppa] with some packages
-unique to Zulip (e.g the `tsearch_extras` postgres extension) and
-backported versions of other dependencies (e.g. `camo`, to fix a buggy
-`init` script).  Our goal is to shrink or eliminate this PPA where
-possible by getting issues addressed in the upstream distributions.
-
 We also rely on the `pgroonga` PPA for the `pgroonga` postgres
-extension, used by our [full-text search](full-text-search.html).
+extension, used by our [full-text search](full-text-search.md).
 
 ## Python packages
 
@@ -230,8 +224,8 @@ super fast internet. You can use tmux or screen to make sure that the
 [script keeps running even if you get disconnected][stack-overflow]
 from the SSH session.
 
-[mypy-docs]: ../testing/mypy.html
-[requirements-readme]: https://github.com/zulip/zulip/blob/master/requirements/README.md
+[mypy-docs]: ../testing/mypy.md
+[requirements-readme]: https://github.com/zulip/zulip/blob/master/requirements/README.md#requirements
 [stack-overflow]: https://askubuntu.com/questions/8653/how-to-keep-processes-running-after-ending-ssh-session
 [caching]: https://help.github.com/en/articles/caching-your-github-password-in-git
 
@@ -254,8 +248,8 @@ reasoning here.
   dependencies in the `yarn.lock` file; `yarn install` updates the
   `yarn.lock` files.
 * `tools/update-prod-static`.  This process is discussed in detail in
-  the [static asset pipeline](../subsystems/front-end-build-process.html) article,
-  but we don't use the `node_modules` directories directly in
+  the [static asset pipeline](../subsystems/html-css.html#static-asset-pipeline)
+  article, but we don't use the `node_modules` directories directly in
   production.  Instead, static assets are compiled using our static
   asset pipeline and it is the compiled assets that are served
   directly to users.  As a result, we don't ship the `node_modules`
@@ -298,7 +292,7 @@ Zulip uses the [iamcal emoji data package][iamcal] for its emoji data
 and sprite sheets.  We download this dependency using `npm`, and then
 have a tool, `tools/setup/build_emoji`, which reformats the emoji data
 into the files under `static/generated/emoji`.  Those files are in
-turn used by our [markdown processor](../subsystems/markdown.html) and
+turn used by our [markdown processor](../subsystems/markdown.md) and
 `tools/update-prod-static` to make Zulip's emoji work in the various
 environments where they need to be displayed.
 
@@ -309,11 +303,11 @@ directories, with `scripts/lib/clean_emoji_cache.py` responsible for
 garbage-collection.  This caching and garbage-collection is required
 because a correct emoji implementation involves over 1000 small image
 files and a few large ones.  There is a more extended article on our
-[emoji infrastructure](emoji.html).
+[emoji infrastructure](emoji.md).
 
 ### Translations data
 
-Zulip's [translations infrastructure](../translating/translating.html) generates
+Zulip's [translations infrastructure](../translating/translating.md) generates
 several files from the source data, which we manage similar to our
 emoji, but without the caching (and thus without the
 garbage-collection).  New translations data is downloaded from
@@ -358,6 +352,5 @@ usually one needs to think about making changes in 3 places:
 [virtualenv-clone]: https://github.com/edwardgeorge/virtualenv-clone/
 [yarn]: https://yarnpkg.com/
 [npm]: https://npmjs.com/
-[ppa]: https://launchpad.net/~tabbott/+archive/ubuntu/zulip
 [iamcal]: https://github.com/iamcal/emoji-data
 [pygments]: http://pygments.org/

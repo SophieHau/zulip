@@ -4,13 +4,10 @@
 // static/third/marked/lib/marked.js, which we have significantly
 // modified from the original implementation.
 
-var markdown = (function () {
 // Docs: https://zulip.readthedocs.io/en/latest/subsystems/markdown.html
 
-var exports = {};
-
-var realm_filter_map = {};
-var realm_filter_list = [];
+let realm_filter_map = {};
+let realm_filter_list = [];
 
 
 // Helper function
@@ -24,7 +21,7 @@ function escape(html, encode) {
 }
 
 // Regexes that match some of our common bugdown markup
-var backend_only_markdown_re = [
+const backend_only_markdown_re = [
     // Inline image previews, check for contiguous chars ending in image suffix
     // To keep the below regexes simple, split them out for the end-of-message case
 
@@ -48,16 +45,16 @@ exports.set_name_in_mention_element = function (element, name) {
 exports.contains_backend_only_syntax = function (content) {
     // Try to guess whether or not a message has bugdown in it
     // If it doesn't, we can immediately render it client-side
-    var markedup = _.find(backend_only_markdown_re, function (re) {
+    const markedup = _.find(backend_only_markdown_re, function (re) {
         return re.test(content);
     });
 
     // If a realm filter doesn't start with some specified characters
     // then don't render it locally. It is workaround for the fact that
     // javascript regex doesn't support lookbehind.
-    var false_filter_match = _.find(realm_filter_list, function (re) {
-        var pattern = /(?:[^\s'"\(,:<])/.source + re[0].source + /(?![\w])/.source;
-        var regex = new RegExp(pattern);
+    const false_filter_match = _.find(realm_filter_list, function (re) {
+        const pattern = /(?:[^\s'"\(,:<])/.source + re[0].source + /(?![\w])/.source;
+        const regex = new RegExp(pattern);
         return regex.test(content);
     });
     return markedup !== undefined || false_filter_match !== undefined;
@@ -66,16 +63,16 @@ exports.contains_backend_only_syntax = function (content) {
 exports.apply_markdown = function (message) {
     message_store.init_booleans(message);
 
-    // Our python-markdown processor appends two \n\n to input
-    var options = {
+    const options = {
         userMentionHandler: function (name, silently) {
-            var person = people.get_by_name(name);
+            let person = people.get_by_name(name);
 
-            var id_regex = /(.+)\|(\d+)$/g; // For @**user|id** syntax
-            var match = id_regex.exec(name);
+            const id_regex = /(.+)\|(\d+)$/g; // For @**user|id** syntax
+            const match = id_regex.exec(name);
             if (match) {
-                if (people.is_known_user_id(match[2])) {
-                    person = people.get_person_from_user_id(match[2]);
+                const user_id = parseInt(match[2], 10);
+                if (people.is_known_user_id(user_id)) {
+                    person = people.get_person_from_user_id(user_id);
                     if (person.full_name !== match[1]) { // Invalid Syntax
                         return;
                     }
@@ -87,7 +84,7 @@ exports.apply_markdown = function (message) {
                     message.mentioned = true;
                     message.mentioned_me_directly = true;
                 }
-                var str = '';
+                let str = '';
                 if (silently) {
                     str += '<span class="user-mention silent" data-user-id="' + person.user_id + '">';
                 } else {
@@ -103,7 +100,7 @@ exports.apply_markdown = function (message) {
             return;
         },
         groupMentionHandler: function (name) {
-            var group = user_groups.get_user_group_from_name(name);
+            const group = user_groups.get_user_group_from_name(name);
             if (group !== undefined) {
                 if (user_groups.is_member_of(group.id, people.my_current_user_id())) {
                     message.mentioned = true;
@@ -116,7 +113,7 @@ exports.apply_markdown = function (message) {
         },
         silencedMentionHandler: function (quote) {
             // Silence quoted mentions.
-            var user_mention_re = /<span.*user-mention.*data-user-id="(\d+|\*)"[^>]*>@/gm;
+            const user_mention_re = /<span.*user-mention.*data-user-id="(\d+|\*)"[^>]*>@/gm;
             quote = quote.replace(user_mention_re, function (match) {
                 match = match.replace(/"user-mention"/g, '"user-mention silent"');
                 match = match.replace(/>@/g, '>');
@@ -131,8 +128,9 @@ exports.apply_markdown = function (message) {
             return quote;
         },
     };
+    // Our python-markdown processor appends two \n\n to input
     message.content = marked(message.raw_content + '\n\n', options).trim();
-    message.is_me_message = exports.is_status_message(message.raw_content, message.content);
+    message.is_me_message = exports.is_status_message(message.raw_content);
 };
 
 exports.add_topic_links = function (message) {
@@ -140,20 +138,20 @@ exports.add_topic_links = function (message) {
         util.set_topic_links(message, []);
         return;
     }
-    var topic = util.get_message_topic(message);
-    var links = [];
+    const topic = util.get_message_topic(message);
+    let links = [];
     _.each(realm_filter_list, function (realm_filter) {
-        var pattern = realm_filter[0];
-        var url = realm_filter[1];
-        var match;
+        const pattern = realm_filter[0];
+        const url = realm_filter[1];
+        let match;
         while ((match = pattern.exec(topic)) !== null) {
-            var link_url = url;
-            var matched_groups = match.slice(1);
-            var i = 0;
+            let link_url = url;
+            const matched_groups = match.slice(1);
+            let i = 0;
             while (i < matched_groups.length) {
-                var matched_group = matched_groups[i];
-                var current_group = i + 1;
-                var back_ref = "\\" + current_group;
+                const matched_group = matched_groups[i];
+                const current_group = i + 1;
+                const back_ref = "\\" + current_group;
                 link_url = link_url.replace(back_ref, matched_group);
                 i += 1;
             }
@@ -162,8 +160,8 @@ exports.add_topic_links = function (message) {
     });
 
     // Also make raw urls navigable
-    var url_re = /\b(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/g; // Slightly modified from third/marked.js
-    var match = topic.match(url_re);
+    const url_re = /\b(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/g; // Slightly modified from third/marked.js
+    const match = topic.match(url_re);
     if (match) {
         links = links.concat(match);
     }
@@ -171,10 +169,8 @@ exports.add_topic_links = function (message) {
     util.set_topic_links(message, links);
 };
 
-exports.is_status_message = function (raw_content, content) {
-    return raw_content.indexOf('/me ') === 0 &&
-            content.indexOf('<p>') === 0 &&
-            content.indexOf('</p>') !== -1;
+exports.is_status_message = function (raw_content) {
+    return raw_content.indexOf('/me ') === 0;
 };
 
 function make_emoji_span(codepoint, title, alt_text) {
@@ -185,26 +181,26 @@ function make_emoji_span(codepoint, title, alt_text) {
 }
 
 function handleUnicodeEmoji(unicode_emoji) {
-    var codepoint = unicode_emoji.codePointAt(0).toString(16);
+    const codepoint = unicode_emoji.codePointAt(0).toString(16);
     if (emoji_codes.codepoint_to_name.hasOwnProperty(codepoint)) {
-        var emoji_name = emoji_codes.codepoint_to_name[codepoint];
-        var alt_text = ':' + emoji_name + ':';
-        var title = emoji_name.split("_").join(" ");
+        const emoji_name = emoji_codes.codepoint_to_name[codepoint];
+        const alt_text = ':' + emoji_name + ':';
+        const title = emoji_name.split("_").join(" ");
         return make_emoji_span(codepoint, title, alt_text);
     }
     return unicode_emoji;
 }
 
 function handleEmoji(emoji_name) {
-    var alt_text = ':' + emoji_name + ':';
-    var title = emoji_name.split("_").join(" ");
+    const alt_text = ':' + emoji_name + ':';
+    const title = emoji_name.split("_").join(" ");
     if (emoji.active_realm_emojis.hasOwnProperty(emoji_name)) {
-        var emoji_url = emoji.active_realm_emojis[emoji_name].emoji_url;
+        const emoji_url = emoji.active_realm_emojis[emoji_name].emoji_url;
         return '<img alt="' + alt_text + '"' +
                ' class="emoji" src="' + emoji_url + '"' +
                ' title="' + title + '">';
     } else if (emoji_codes.name_to_codepoint.hasOwnProperty(emoji_name)) {
-        var codepoint = emoji_codes.name_to_codepoint[emoji_name];
+        const codepoint = emoji_codes.name_to_codepoint[emoji_name];
         return make_emoji_span(codepoint, title, alt_text);
     }
     return alt_text;
@@ -217,33 +213,33 @@ function handleAvatar(email) {
 }
 
 function handleStream(streamName) {
-    var stream = stream_data.get_sub(streamName);
+    const stream = stream_data.get_sub(streamName);
     if (stream === undefined) {
         return;
     }
-    var href = hash_util.by_stream_uri(stream.stream_id);
+    const href = hash_util.by_stream_uri(stream.stream_id);
     return '<a class="stream" data-stream-id="' + stream.stream_id + '" ' +
         'href="/' + href + '"' +
         '>' + '#' + escape(stream.name) + '</a>';
 }
 
 function handleStreamTopic(streamName, topic) {
-    var stream = stream_data.get_sub(streamName);
+    const stream = stream_data.get_sub(streamName);
     if (stream === undefined || !topic) {
         return;
     }
-    var href = hash_util.by_stream_topic_uri(stream.stream_id, topic);
-    var text = '#' + escape(stream.name) + ' > ' + escape(topic);
+    const href = hash_util.by_stream_topic_uri(stream.stream_id, topic);
+    const text = '#' + escape(stream.name) + ' > ' + escape(topic);
     return '<a class="stream-topic" data-stream-id="' + stream.stream_id + '" ' +
         'href="/' + href + '"' + '>' + text + '</a>';
 }
 
 function handleRealmFilter(pattern, matches) {
-    var url = realm_filter_map[pattern];
+    let url = realm_filter_map[pattern];
 
-    var current_group = 1;
+    let current_group = 1;
     _.each(matches, function (match) {
-        var back_ref = "\\" + current_group;
+        const back_ref = "\\" + current_group;
         url = url.replace(back_ref, match);
         current_group += 1;
     });
@@ -265,11 +261,11 @@ function handleTex(tex, fullmatch) {
 function python_to_js_filter(pattern, url) {
     // Converts a python named-group regex to a javascript-compatible numbered
     // group regex... with a regex!
-    var named_group_re = /\(?P<([^>]+?)>/g;
-    var match = named_group_re.exec(pattern);
-    var current_group = 1;
+    const named_group_re = /\(?P<([^>]+?)>/g;
+    let match = named_group_re.exec(pattern);
+    let current_group = 1;
     while (match) {
-        var name = match[1];
+        const name = match[1];
         // Replace named group with regular matching group
         pattern = pattern.replace('(?P<' + name + '>', '(');
         // Replace named reference in url to numbered reference
@@ -282,14 +278,14 @@ function python_to_js_filter(pattern, url) {
         current_group += 1;
     }
     // Convert any python in-regex flags to RegExp flags
-    var js_flags = 'g';
-    var inline_flag_re = /\(\?([iLmsux]+)\)/;
+    let js_flags = 'g';
+    const inline_flag_re = /\(\?([iLmsux]+)\)/;
     match = inline_flag_re.exec(pattern);
 
     // JS regexes only support i (case insensitivity) and m (multiline)
     // flags, so keep those and ignore the rest
     if (match) {
-        var py_flags = match[1].split("");
+        const py_flags = match[1].split("");
         _.each(py_flags, function (flag) {
             if ("im".indexOf(flag) !== -1) {
                 js_flags += flag;
@@ -306,7 +302,7 @@ function python_to_js_filter(pattern, url) {
     // message is rendered on the backend which has proper support
     // for negative lookbehind.
     pattern = pattern + /(?![\w])/.source;
-    var final_regex = null;
+    let final_regex = null;
     try {
         final_regex = new RegExp(pattern, js_flags);
     } catch (ex) {
@@ -323,11 +319,11 @@ exports.set_realm_filters = function (realm_filters) {
     realm_filter_map = {};
     realm_filter_list = [];
 
-    var marked_rules = [];
+    const marked_rules = [];
     _.each(realm_filters, function (realm_filter) {
-        var pattern = realm_filter[0];
-        var url = realm_filter[1];
-        var js_filters = python_to_js_filter(pattern, url);
+        const pattern = realm_filter[0];
+        const url = realm_filter[1];
+        const js_filters = python_to_js_filter(pattern, url);
         if (!js_filters[0]) {
             // Skip any realm filters that could not be converted
             return;
@@ -341,82 +337,6 @@ exports.set_realm_filters = function (realm_filters) {
     marked.InlineLexer.rules.zulip.realm_filters = marked_rules;
 };
 
-var preprocess_auto_olists = (function () {
-    var TAB_LENGTH = 2;
-    var re = /^( *)(\d+)\. +(.*)/;
-
-    function getIndent(match) {
-        return Math.floor(match[1].length / TAB_LENGTH);
-    }
-
-    function extendArray(arr, arr2) {
-        Array.prototype.push.apply(arr, arr2);
-    }
-
-    function renumber(mlist) {
-        if (!mlist.length) {
-            return [];
-        }
-
-        var startNumber = parseInt(mlist[0][2], 10);
-        var changeNumbers = _.every(mlist, function (m) {
-            return startNumber === parseInt(m[2], 10);
-        });
-
-        var counter = startNumber;
-        return _.map(mlist, function (m) {
-            var number = changeNumbers ? counter.toString() : m[2];
-            counter += 1;
-            return m[1] + number + '. ' + m[3];
-        });
-    }
-
-    return function (src) {
-        var newLines = [];
-        var currentList = [];
-        var currentIndent = 0;
-
-        _.each(src.split('\n'), function (line) {
-            var m = line.match(re);
-            var isNextItem = m && currentList.length && currentIndent === getIndent(m);
-            var isBlankLine = line.trim() === "";
-            if (!isNextItem && !isBlankLine) {
-                // This is a non-blank line that doesn't start with a
-                // bullet, so we're done with the previous numbered
-                // list and can start a new one.
-                extendArray(newLines, renumber(currentList));
-                currentList = [];
-            }
-
-            if (!m) {
-                // This line doesn't start with a bullet.  If it's not
-                // between bullets of a list (i.e. `currentList =
-                // []`), this is just normal content outside a bulleted
-                // list and we can append it to `new_lines`.
-                if (!currentList.length) {
-                    newLines.push(line);
-                }
-
-                // Otherwise, it's a blank line in between bullets,
-                // because if this was a bullet, `m` would be truthy,
-                // and if it wasn't blank, we could have terminated the
-                // list (see above).  We can just skip this blank line
-                // syntax, as our bulleted list CSS styling will
-                // control vertical spacing between bullets.
-            } else if (isNextItem) {
-                currentList.push(m);
-            } else {
-                currentList = [m];
-                currentIndent = getIndent(m);
-            }
-        });
-
-        extendArray(newLines, renumber(currentList));
-
-        return newLines.join('\n');
-    };
-}());
-
 exports.initialize = function () {
 
     function disable_markdown_regex(rules, name) {
@@ -426,7 +346,7 @@ exports.initialize = function () {
     }
 
     // Configure the marked markdown parser for our usage
-    var r = new marked.Renderer();
+    const r = new marked.Renderer();
 
     // No <code> around our code blocks instead a codehilite <div> and disable
     // class-specific highlighting.
@@ -439,7 +359,10 @@ exports.initialize = function () {
     // Our links have title= and target=_blank
     r.link = function (href, title, text) {
         title = title || href;
-        var out = '<a href="' + href + '"' + ' target="_blank" title="' +
+        if (!text.trim()) {
+            text = href;
+        }
+        const out = '<a href="' + href + '"' + ' target="_blank" title="' +
                   title + '"' + '>' + text + '</a>';
         return out;
     };
@@ -463,13 +386,8 @@ exports.initialize = function () {
         return emoji.translate_emoticons_to_names(src);
     }
 
-    // Disable ordered lists
-    // We used GFM + tables, so replace the list start regex for that ruleset
-    // We remove the |[\d+]\. that matches the numbering in a numbered list
-    marked.Lexer.rules.tables.list = /^( *)((?:\*)) [\s\S]+?(?:\n+(?=(?: *[\-*_]){3,} *(?:\n+|$))|\n{2,}(?! )(?!\1(?:\*) )\n*|\s*$)/;
-
-    // Disable headings
-    disable_markdown_regex(marked.Lexer.rules.tables, 'heading');
+    // Disable lheadings
+    // We only keep the # Heading format.
     disable_markdown_regex(marked.Lexer.rules.tables, 'lheading');
 
     // Disable __strong__ (keeping **strong**)
@@ -514,17 +432,10 @@ exports.initialize = function () {
         renderer: r,
         preprocessors: [
             preprocess_code_blocks,
-            preprocess_auto_olists,
             preprocess_translate_emoticons,
         ],
     });
 
 };
 
-return exports;
-
-}());
-if (typeof module !== 'undefined') {
-    module.exports = markdown;
-}
-window.markdown = markdown;
+window.markdown = exports;

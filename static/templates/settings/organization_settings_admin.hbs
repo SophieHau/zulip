@@ -1,7 +1,5 @@
 <div id="organization-settings" data-name="organization-settings" class="settings-section">
     <form class="form-horizontal admin-realm-form org-settings-form">
-        <div class="alert" id="admin-realm-notifications-stream-status"></div>
-        <div class="alert" id="admin-realm-signup-notifications-stream-status"></div>
 
         <div id="org-msg-editing" class="org-subsection-parent">
             <div class="subsection-header">
@@ -104,49 +102,13 @@
                 </div>
             </div>
 
-            <div class="input-group">
-                <label for="realm_notifications_stream" id="realm_notifications_stream_label" class="inline-block">
-                    {{t "New stream notifications:" }}
-                    <span class="dropup actual-dropdown-menu" id="id_realm_notifications_stream"
-                      name="realm_notifications_stream" aria-labelledby="realm_notifications_stream_label">
-                        <button class="button small rounded dropdown-toggle" data-toggle="dropdown">
-                            <span id="realm_notifications_stream_name"></span>
-                            <i class="fa fa-pencil"></i>
-                        </button>
-                        <ul class="dropdown-menu modal-bg" role="menu">
-                            <li class="dropdown-search" role="presentation">
-                                <input type="text" role="menuitem" placeholder="{{t 'Filter streams' }}" autofocus/>
-                            </li>
-                            <span class="dropdown-list-body" data-simplebar></span>
-                        </ul>
-                    </span>
-                </label>
-                {{#if is_admin }}
-                <a class="notifications-stream-disable notification-disable">{{t "[Disable]" }}</a>
-                {{/if}}
-            </div>
+            {{> notifications_stream_settings_widget
+              notifications_type="notifications"
+              label=admin_settings_label.realm_notifications_stream }}
 
-            <div class="input-group">
-                <label for="realm_signup_notifications_stream" id="realm_signup_notifications_stream_label" class="inline-block">
-                    {{t "New user notifications:" }}
-                    <span class="dropup actual-dropdown-menu" id="id_realm_signup_notifications_stream"
-                      name="realm_signup_notifications_stream" aria-labelledby="realm_signup_notifications_stream_label">
-                        <button class="button small rounded dropdown-toggle" data-toggle="dropdown">
-                            <span id="realm_signup_notifications_stream_name"></span>
-                            <i class="fa fa-pencil"></i>
-                        </button>
-                        <ul class="dropdown-menu modal-bg" role="menu">
-                            <li class="dropdown-search" role="presentation">
-                                <input type="text" role="menuitem" placeholder="{{t 'Filter streams' }}" autofocus/>
-                            </li>
-                            <span class="dropdown-list-body" data-simplebar></span>
-                        </ul>
-                    </span>
-                </label>
-                {{#if is_admin }}
-                <a class="signup-notifications-stream-disable notification-disable">{{t "[Disable]" }}</a>
-                {{/if}}
-            </div>
+            {{> notifications_stream_settings_widget
+              notifications_type="signup_notifications"
+              label=admin_settings_label.realm_signup_notifications_stream }}
         </div>
 
         <div id="org-user-defaults" class="org-subsection-parent">
@@ -157,18 +119,21 @@
             <p>{{t "Default settings for new users joining this organization." }}</p>
             <div class="inline-block organization-settings-parent">
                 <div class="input-group">
-                    <label for="realm_default_language" class="dropdown-title">{{t "Default language" }}:</label>
+                    <label for="realm_default_language" class="dropdown-title">{{t "Default language" }}</label>
                     <select name="realm_default_language" class ="setting-widget prop-element" id="id_realm_default_language" data-setting-widget-type="text">
                         {{#each language_list}}
                         <option value='{{this.code}}'>{{this.name}}</option>
                         {{/each}}
                     </select>
                 </div>
-                {{> settings_checkbox
-                  setting_name="realm_default_twenty_four_hour_time"
-                  prefix="id_"
-                  is_checked=realm_default_twenty_four_hour_time
-                  label=admin_settings_label.realm_default_twenty_four_hour_time}}
+                <div class="input-group">
+                    <label for="realm_default_twenty_four_hour_time" class="dropdown-title">{{ admin_settings_label.realm_default_twenty_four_hour_time }}</label>
+                    <select name="realm_default_twenty_four_hour_time" class ="setting-widget prop-element" id="id_realm_default_twenty_four_hour_time" data-setting-widget-type="text">
+                        {{#each realm_default_twenty_four_hour_time_values}}
+                        <option value='{{ this.value }}'>{{ this.description }}</option>
+                        {{/each}}
+                    </select>
+                </div>
             </div>
         </div>
 

@@ -1,4 +1,5 @@
 {% extends "zerver/base.html" %}
+{% set entrypoint = "app" %}
 {# The app itself. #}
 {# Includes some other templates as tabs. #}
 
@@ -6,26 +7,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 {% endblock %}
 
-{% block page_params %}
-{# Insert parameters, which have been encoded with JSONEncoderForHTML. #}
-<script nonce="{{ csp_nonce }}">
-    {% autoescape off %}
-    var page_params = {{ page_params }};
-    {% endautoescape %}
-</script>
-{% endblock %}
-
-{% block commonjs %}
-{{ render_bundle('app', attrs='nonce="%s"' % (csp_nonce,)) }}
-{{ render_bundle('katex', attrs='nonce="%s"' % (csp_nonce,)) }}
-{% endblock %}
-
 {% block customhead %}
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link href="/static/images/logo/apple-touch-icon-precomposed.png" rel="apple-touch-icon-precomposed">
 <link id="emoji-spritesheet" href="/static/generated/emoji/{{ emojiset }}-sprite.css" rel="stylesheet" type="text/css">
 <style>
-    #css-loading {
+    #app-loading {
     background-color: hsl(0, 0%, 100%);
     position: fixed;
     height: 100%;
@@ -33,6 +20,7 @@
     padding: 10px;
     top: 0px;
     left: 0px;
+    z-index: 9001;
     }
 
 </style>
@@ -42,7 +30,7 @@
 <div id="feedback_container" class="new-style">
 </div>
 
-<div id="css-loading">
+<div id="app-loading">
     <h3>{{ _('Loading...') }}</h3>
     <p>{% trans %}If this message does not go away, please wait a couple seconds and <a id="reload-lnk">reload</a> the page.{% endtrans %}</p>
     <script nonce="{{ csp_nonce }}">

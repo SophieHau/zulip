@@ -30,7 +30,9 @@ from zerver.lib.message import (
 )
 from zerver.lib.response import json_success, json_error
 from zerver.lib.sqlalchemy_utils import get_sqlalchemy_connection
-from zerver.lib.streams import access_stream_by_id, can_access_stream_history_by_name
+from zerver.lib.streams import access_stream_by_id, get_public_streams_queryset, \
+    can_access_stream_history_by_name, can_access_stream_history_by_id, \
+    get_stream_by_narrow_operand_access_unchecked
 from zerver.lib.timestamp import datetime_to_timestamp, convert_to_UTC
 from zerver.lib.timezone import get_timezone
 from zerver.lib.topic import (
@@ -49,11 +51,12 @@ from zerver.lib.validator import \
     check_string_or_int_list, check_string_or_int
 from zerver.lib.zephyr import compute_mit_user_fullname
 from zerver.models import Message, UserProfile, Stream, Subscription, Client,\
-    Realm, RealmDomain, Recipient, UserMessage, bulk_get_recipients, get_personal_recipient, \
-    get_stream, email_to_domain, get_realm, get_active_streams, \
-    get_user_including_cross_realm, get_user_by_id_in_realm_including_cross_realm, get_stream_recipient
+    Realm, RealmDomain, Recipient, UserMessage, \
+    email_to_domain, get_realm, get_active_streams, get_user_including_cross_realm, \
+    get_user_by_id_in_realm_including_cross_realm
 
 from sqlalchemy import func
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.sql import select, join, column, literal_column, literal, and_, \
     or_, not_, union_all, alias, Selectable, ColumnElement, table
 
@@ -81,6 +84,29 @@ Query = Any
 
 # TODO: should be Callable[[ColumnElement], ColumnElement], but sqlalchemy stubs are busted
 ConditionTransform = Any
+
+OptionalNarrowListT = Optional[List[Dict[str, Any]]]
+
+# These delimiters will not appear in rendered messages or HTML-escaped topics.
+TS_START = "<ts-match>"
+TS_STOP = "</ts-match>"
+
+def ts_locs_array(
+    config: ColumnElement, text: ColumnElement, tsquery: ColumnElement
+) -> ColumnElement:
+    options = "HighlightAll = TRUE, StartSel = %s, StopSel = %s" % (TS_START, TS_STOP)
+    delimited = func.ts_headline(config, text, tsquery, options)
+    parts = func.unnest(func.string_to_array(delimited, TS_START)).alias()
+    part = column(parts.name)
+    part_len = func.length(part) - len(TS_STOP)
+    match_pos = func.sum(part_len).over(rows=(None, -1)) + len(TS_STOP)
+    match_len = func.strpos(part, TS_STOP) - 1
+    return func.array(
+        select([postgresql.array([match_pos, match_len])])
+        .select_from(parts)
+        .offset(1)
+        .as_scalar()
+    )
 
 # When you add a new operator to this, also update zerver/lib/narrow.py
 class NarrowBuilder:
@@ -201,14 +227,14 @@ class NarrowBuilder:
                     s[i] = '\\' + c
         return ''.join(s)
 
-    def by_stream(self, query: Query, operand: str, maybe_negate: ConditionTransform) -> Query:
+    def by_stream(self, query: Query, operand: Union[str, int], maybe_negate: ConditionTransform) -> Query:
         try:
             # Because you can see your own message history for
             # private streams you are no longer subscribed to, we
-            # need get_stream, not access_stream, here.
-            stream = get_stream(operand, self.user_profile.realm)
+            # need get_stream_by_narrow_operand_access_unchecked here.
+            stream = get_stream_by_narrow_operand_access_unchecked(operand, self.user_profile.realm)
         except Stream.DoesNotExist:
-            raise BadNarrowOperator('unknown stream ' + operand)
+            raise BadNarrowOperator('unknown stream ' + str(operand))
 
         if self.user_profile.realm.is_zephyr_mirror_realm:
             # MIT users expect narrowing to "social" to also show messages to
@@ -229,14 +255,25 @@ class NarrowBuilder:
 
             matching_streams = get_active_streams(self.user_profile.realm).filter(
                 name__iregex=r'^(un)*%s(\.d)*$' % (self._pg_re_escape(base_stream_name),))
-            matching_stream_ids = [matching_stream.id for matching_stream in matching_streams]
-            recipients_map = bulk_get_recipients(Recipient.STREAM, matching_stream_ids)
-            cond = column("recipient_id").in_([recipient.id for recipient in recipients_map.values()])
+            recipient_ids = [matching_stream.recipient_id for matching_stream in matching_streams]
+            cond = column("recipient_id").in_(recipient_ids)
             return query.where(maybe_negate(cond))
 
-        recipient = get_stream_recipient(stream.id)
+        recipient = stream.recipient
         cond = column("recipient_id") == recipient.id
         return query.where(maybe_negate(cond))
+
+    def by_streams(self, query: Query, operand: str, maybe_negate: ConditionTransform) -> Query:
+        if operand == 'public':
+            # Get all both subscribed and non subscribed public streams
+            # but exclude any private subscribed streams.
+            public_streams_queryset = get_public_streams_queryset(self.user_profile.realm)
+            recipient_ids = Recipient.objects.filter(
+                type=Recipient.STREAM,
+                type_id__in=public_streams_queryset).values_list('id', flat=True).order_by('id')
+            cond = column("recipient_id").in_(recipient_ids)
+            return query.where(maybe_negate(cond))
+        raise BadNarrowOperator('unknown streams operand ' + operand)
 
     def by_topic(self, query: Query, operand: str, maybe_negate: ConditionTransform) -> Query:
         if self.user_profile.realm.is_zephyr_mirror_realm:
@@ -353,9 +390,9 @@ class NarrowBuilder:
             # the thread (the sender), we need to do a somewhat
             # complex query to get messages between these two users
             # with either of them as the sender.
-            self_recipient = get_personal_recipient(self.user_profile.id)
+            self_recipient_id = self.user_profile.recipient_id
             cond = or_(and_(column("sender_id") == other_participant.id,
-                            column("recipient_id") == self_recipient.id),
+                            column("recipient_id") == self_recipient_id),
                        and_(column("sender_id") == self.user_profile.id,
                             column("recipient_id") == recipient.id))
             return query.where(maybe_negate(cond))
@@ -414,7 +451,6 @@ class NarrowBuilder:
     def _by_search_tsearch(self, query: Query, operand: str,
                            maybe_negate: ConditionTransform) -> Query:
         tsquery = func.plainto_tsquery(literal("zulip.english_us_search"), literal(operand))
-        ts_locs_array = func.ts_match_locs_array
         query = query.column(ts_locs_array(literal("zulip.english_us_search"),
                                            column("rendered_content"),
                                            tsquery).label("content_matches"))
@@ -438,9 +474,6 @@ class NarrowBuilder:
         cond = column("search_tsvector").op("@@")(tsquery)
         return query.where(maybe_negate(cond))
 
-# The offsets we get from PGroonga are counted in characters
-# whereas the offsets from tsearch_extras are in bytes, so we
-# have to account for both cases in the logic below.
 def highlight_string(text: str, locs: Iterable[Tuple[int, int]]) -> str:
     highlight_start = '<span class="highlight">'
     highlight_stop = '</span>'
@@ -448,24 +481,16 @@ def highlight_string(text: str, locs: Iterable[Tuple[int, int]]) -> str:
     result = ''
     in_tag = False
 
-    text_utf8 = text.encode('utf8')
-
     for loc in locs:
         (offset, length) = loc
 
-        # These indexes are in byte space for tsearch,
-        # and they are in string space for pgroonga.
         prefix_start = pos
         prefix_end = offset
         match_start = offset
         match_end = offset + length
 
-        if settings.USING_PGROONGA:
-            prefix = text[prefix_start:prefix_end]
-            match = text[match_start:match_end]
-        else:
-            prefix = text_utf8[prefix_start:prefix_end].decode()
-            match = text_utf8[match_start:match_end].decode()
+        prefix = text[prefix_start:prefix_end]
+        match = text[match_start:match_end]
 
         for character in (prefix + match):
             if character == '<':
@@ -482,12 +507,7 @@ def highlight_string(text: str, locs: Iterable[Tuple[int, int]]) -> str:
             result += highlight_stop
         pos = match_end
 
-    if settings.USING_PGROONGA:
-        final_frag = text[pos:]
-    else:
-        final_frag = text_utf8[pos:].decode()
-
-    result += final_frag
+    result += text[pos:]
     return result
 
 def get_search_fields(rendered_content: str, topic_name: str, content_matches: Iterable[Tuple[int, int]],
@@ -497,7 +517,7 @@ def get_search_fields(rendered_content: str, topic_name: str, content_matches: I
         MATCH_TOPIC: highlight_string(escape_html(topic_name), topic_matches),
     }
 
-def narrow_parameter(json: str) -> Optional[List[Dict[str, Any]]]:
+def narrow_parameter(json: str) -> OptionalNarrowListT:
 
     data = ujson.loads(json)
     if not isinstance(data, list):
@@ -510,24 +530,22 @@ def narrow_parameter(json: str) -> Optional[List[Dict[str, Any]]]:
 
         # We have to support a legacy tuple format.
         if isinstance(elem, list):
-            if (len(elem) != 2 or
-                any(not isinstance(x, str) and not isinstance(x, str)
-                    for x in elem)):
+            if (len(elem) != 2 or any(not isinstance(x, str) for x in elem)):
                 raise ValueError("element is not a string pair")
             return dict(operator=elem[0], operand=elem[1])
 
         if isinstance(elem, dict):
             # Make sure to sync this list to frontend also when adding a new operator.
             # that supports user IDs. Relevant code is located in static/js/message_fetch.js
-            # in handle_user_ids_supported_operators function where you will need to update
-            # user_id_supported_operator, or user_ids_supported_operator array.
-            user_id_supported_operator = ['sender', 'group-pm-with']
-            user_ids_supported_operators = ['pm-with']
+            # in handle_operators_supporting_id_based_api function where you will need to update
+            # operators_supporting_id, or operators_supporting_ids array.
+            operators_supporting_id = ['sender', 'group-pm-with', 'stream']
+            operators_supporting_ids = ['pm-with']
 
             operator = elem.get('operator', '')
-            if operator in user_id_supported_operator:
+            if operator in operators_supporting_id:
                 operand_validator = check_string_or_int
-            elif operator in user_ids_supported_operators:
+            elif operator in operators_supporting_ids:
                 operand_validator = check_string_or_int_list
             else:
                 operand_validator = check_string
@@ -552,7 +570,7 @@ def narrow_parameter(json: str) -> Optional[List[Dict[str, Any]]]:
 
     return list(map(convert_term, data))
 
-def ok_to_include_history(narrow: Optional[Iterable[Dict[str, Any]]], user_profile: UserProfile) -> bool:
+def ok_to_include_history(narrow: OptionalNarrowListT, user_profile: UserProfile) -> bool:
     # There are occasions where we need to find Message rows that
     # have no corresponding UserMessage row, because the user is
     # reading a public stream that might include messages that
@@ -567,8 +585,14 @@ def ok_to_include_history(narrow: Optional[Iterable[Dict[str, Any]]], user_profi
     if narrow is not None:
         for term in narrow:
             if term['operator'] == "stream" and not term.get('negated', False):
-                if can_access_stream_history_by_name(user_profile, term['operand']):
-                    include_history = True
+                operand = term['operand']  # type: Union[str, int]
+                if isinstance(operand, str):
+                    include_history = can_access_stream_history_by_name(user_profile, operand)
+                else:
+                    include_history = can_access_stream_history_by_id(user_profile, operand)
+            elif (term['operator'] == "streams" and term['operand'] == "public"
+                    and not term.get('negated', False) and user_profile.can_access_public_streams()):
+                include_history = True
         # Disable historical messages if the user is narrowing on anything
         # that's a property on the UserMessage table.  There cannot be
         # historical messages in these cases anyway.
@@ -578,28 +602,26 @@ def ok_to_include_history(narrow: Optional[Iterable[Dict[str, Any]]], user_profi
 
     return include_history
 
-def get_stream_name_from_narrow(narrow: Optional[Iterable[Dict[str, Any]]]) -> Optional[str]:
+def get_stream_from_narrow_access_unchecked(narrow: OptionalNarrowListT, realm: Realm) -> Optional[Stream]:
     if narrow is not None:
         for term in narrow:
             if term['operator'] == 'stream':
-                return term['operand'].lower()
+                return get_stream_by_narrow_operand_access_unchecked(term['operand'], realm)
     return None
 
 def exclude_muting_conditions(user_profile: UserProfile,
-                              narrow: Optional[Iterable[Dict[str, Any]]]) -> List[Selectable]:
+                              narrow: OptionalNarrowListT) -> List[Selectable]:
     conditions = []
-    stream_name = get_stream_name_from_narrow(narrow)
-
     stream_id = None
-    if stream_name is not None:
-        try:
-            # Note that this code works around a lint rule that
-            # says we should use access_stream_by_name to get the
-            # stream.  It is okay here, because we are only using
-            # the stream id to exclude data, not to include results.
-            stream_id = get_stream(stream_name, user_profile.realm).id
-        except Stream.DoesNotExist:
-            pass
+    try:
+        # Note: It is okay here to not check access to stream
+        # because we are only using the stream id to exclude data,
+        # not to include results.
+        stream = get_stream_from_narrow_access_unchecked(narrow, user_profile.realm)
+        if stream is not None:
+            stream_id = stream.id
+    except Stream.DoesNotExist:
+        pass
 
     if stream_id is None:
         rows = Subscription.objects.filter(
@@ -648,7 +670,7 @@ def get_base_query_for_search(user_profile: UserProfile,
 def add_narrow_conditions(user_profile: UserProfile,
                           inner_msg_id_col: ColumnElement,
                           query: Query,
-                          narrow: Optional[List[Dict[str, Any]]]) -> Tuple[Query, bool]:
+                          narrow: OptionalNarrowListT) -> Tuple[Query, bool]:
     is_search = False  # for now
 
     if narrow is None:
@@ -680,7 +702,7 @@ def add_narrow_conditions(user_profile: UserProfile,
 
 def find_first_unread_anchor(sa_conn: Any,
                              user_profile: UserProfile,
-                             narrow: Optional[List[Dict[str, Any]]]) -> int:
+                             narrow: OptionalNarrowListT) -> int:
     # We always need UserMessage in our query, because it has the unread
     # flag for the user.
     need_user_message = True
@@ -744,11 +766,10 @@ def zcommand_backend(request: HttpRequest, user_profile: UserProfile,
 
 @has_request_variables
 def get_messages_backend(request: HttpRequest, user_profile: UserProfile,
-                         anchor: int=REQ(converter=int, default=None),
+                         anchor: Optional[int]=REQ(converter=int, default=None),
                          num_before: int=REQ(converter=to_non_negative_int),
                          num_after: int=REQ(converter=to_non_negative_int),
-                         narrow: Optional[List[Dict[str, Any]]]=REQ('narrow', converter=narrow_parameter,
-                                                                    default=None),
+                         narrow: OptionalNarrowListT=REQ('narrow', converter=narrow_parameter, default=None),
                          use_first_unread_anchor: bool=REQ(validator=check_bool, default=False),
                          client_gravatar: bool=REQ(validator=check_bool, default=False),
                          apply_markdown: bool=REQ(validator=check_bool, default=True)) -> HttpResponse:
@@ -814,6 +835,9 @@ def get_messages_backend(request: HttpRequest, user_profile: UserProfile,
             narrow,
         )
 
+    # Hint to mypy that anchor is now unconditionally an integer,
+    # since its inference engine can't figure that out.
+    assert anchor is not None
     anchored_to_left = (anchor == 0)
 
     # Set value that will be used to short circuit the after_query
@@ -1245,17 +1269,15 @@ def handle_deferred_message(sender: UserProfile, client: Client,
                            forwarder_user_profile=forwarder_user_profile)
     return json_success({"deliver_at": str(deliver_at_usertz)})
 
-# We do not @require_login for send_message_backend, since it is used
-# both from the API and the web service.  Code calling
-# send_message_backend should either check the API key or check that
-# the user is logged in.
 @has_request_variables
 def send_message_backend(request: HttpRequest, user_profile: UserProfile,
                          message_type_name: str=REQ('type'),
                          message_to: Union[Sequence[int], Sequence[str]]=REQ(
-                             'to', converter=extract_recipients, default=[]),
-                         forged: bool=REQ(default=False,
-                                          documentation_pending=True),
+                             'to', type=Union[List[int], List[str]],
+                             converter=extract_recipients, default=[]),
+                         forged_str: Optional[str]=REQ("forged",
+                                                       default=None,
+                                                       documentation_pending=True),
                          topic_name: Optional[str]=REQ_topic(),
                          message_content: str=REQ('content'),
                          widget_content: Optional[str]=REQ(default=None,
@@ -1273,6 +1295,10 @@ def send_message_backend(request: HttpRequest, user_profile: UserProfile,
                          tz_guess: Optional[str]=REQ('tz_guess', default=None,
                                                      documentation_pending=True)
                          ) -> HttpResponse:
+    # Temporary hack: We're transitioning `forged` from accepting
+    # `yes` to accepting `true` like all of our normal booleans.
+    forged = forged_str is not None and forged_str in ["yes", "true"]
+
     client = request.client
     is_super_user = request.user.is_api_super_user
     if forged and not is_super_user:
@@ -1391,13 +1417,14 @@ def fill_edit_history_entries(message_history: List[Dict[str, Any]], message: Me
         topic = prev_topic,
         content = prev_content,
         rendered_content = prev_rendered_content,
-        timestamp = datetime_to_timestamp(message.pub_date),
+        timestamp = datetime_to_timestamp(message.date_sent),
         user_id = message.sender_id,
     ))
 
 @has_request_variables
 def get_message_edit_history(request: HttpRequest, user_profile: UserProfile,
-                             message_id: int=REQ(converter=to_non_negative_int)) -> HttpResponse:
+                             message_id: int=REQ(converter=to_non_negative_int,
+                                                 path_only=True)) -> HttpResponse:
     if not user_profile.realm.allow_edit_history:
         return json_error(_("Message edit history is disabled in this organization"))
     message, ignored_user_message = access_message(user_profile, message_id)
@@ -1414,7 +1441,7 @@ def get_message_edit_history(request: HttpRequest, user_profile: UserProfile,
 
 @has_request_variables
 def update_message_backend(request: HttpRequest, user_profile: UserMessage,
-                           message_id: int=REQ(converter=to_non_negative_int),
+                           message_id: int=REQ(converter=to_non_negative_int, path_only=True),
                            topic_name: Optional[str]=REQ_topic(),
                            propagate_mode: Optional[str]=REQ(default="change_one"),
                            content: Optional[str]=REQ(default=None)) -> HttpResponse:
@@ -1448,7 +1475,7 @@ def update_message_backend(request: HttpRequest, user_profile: UserMessage,
     edit_limit_buffer = 20
     if content is not None and user_profile.realm.message_content_edit_limit_seconds > 0:
         deadline_seconds = user_profile.realm.message_content_edit_limit_seconds + edit_limit_buffer
-        if (timezone_now() - message.pub_date) > datetime.timedelta(seconds=deadline_seconds):
+        if (timezone_now() - message.date_sent) > datetime.timedelta(seconds=deadline_seconds):
             raise JsonableError(_("The time limit for editing this message has passed"))
 
     # If there is a change to the topic, check that the user is allowed to
@@ -1458,7 +1485,7 @@ def update_message_backend(request: HttpRequest, user_profile: UserMessage,
     if content is None and message.sender != user_profile and not user_profile.is_realm_admin and \
             not is_no_topic_msg:
         deadline_seconds = Realm.DEFAULT_COMMUNITY_TOPIC_EDITING_LIMIT_SECONDS + edit_limit_buffer
-        if (timezone_now() - message.pub_date) > datetime.timedelta(seconds=deadline_seconds):
+        if (timezone_now() - message.date_sent) > datetime.timedelta(seconds=deadline_seconds):
             raise JsonableError(_("The time limit for editing this message has passed"))
 
     if topic_name is None and content is None:
@@ -1471,12 +1498,17 @@ def update_message_backend(request: HttpRequest, user_profile: UserMessage,
     links_for_embed = set()  # type: Set[str]
     prior_mention_user_ids = set()  # type: Set[int]
     mention_user_ids = set()  # type: Set[int]
+    mention_data = None  # type: Optional[bugdown.MentionData]
     if content is not None:
         content = content.strip()
         if content == "":
             content = "(deleted)"
         content = truncate_body(content)
 
+        mention_data = bugdown.MentionData(
+            realm_id=user_profile.realm.id,
+            content=content,
+        )
         user_info = get_user_info_for_message_updates(message.id)
         prior_mention_user_ids = user_info['mention_user_ids']
 
@@ -1487,7 +1519,8 @@ def update_message_backend(request: HttpRequest, user_profile: UserMessage,
         rendered_content = render_incoming_message(message,
                                                    content,
                                                    user_info['message_user_ids'],
-                                                   user_profile.realm)
+                                                   user_profile.realm,
+                                                   mention_data=mention_data)
         links_for_embed |= message.links_for_preview
 
         mention_user_ids = message.mentions_user_ids
@@ -1495,7 +1528,7 @@ def update_message_backend(request: HttpRequest, user_profile: UserMessage,
     number_changed = do_update_message(user_profile, message, topic_name,
                                        propagate_mode, content, rendered_content,
                                        prior_mention_user_ids,
-                                       mention_user_ids)
+                                       mention_user_ids, mention_data)
 
     # Include the number of messages changed in the logs
     request._log_data['extra'] = "[%s]" % (number_changed,)
@@ -1527,25 +1560,27 @@ def validate_can_delete_message(user_profile: UserProfile, message: Message) -> 
     if deadline_seconds == 0:
         # 0 for no time limit to delete message
         return
-    if (timezone_now() - message.pub_date) > datetime.timedelta(seconds=deadline_seconds):
+    if (timezone_now() - message.date_sent) > datetime.timedelta(seconds=deadline_seconds):
         # User can not delete message after deadline time of realm
         raise JsonableError(_("The time limit for deleting this message has passed"))
     return
 
 @has_request_variables
 def delete_message_backend(request: HttpRequest, user_profile: UserProfile,
-                           message_id: int=REQ(converter=to_non_negative_int)) -> HttpResponse:
+                           message_id: int=REQ(converter=to_non_negative_int,
+                                               path_only=True)) -> HttpResponse:
     message, ignored_user_message = access_message(user_profile, message_id)
     validate_can_delete_message(user_profile, message)
     try:
-        do_delete_messages(user_profile, [message])
+        do_delete_messages(user_profile.realm, [message])
     except (Message.DoesNotExist, IntegrityError):
         raise JsonableError(_("Message already deleted"))
     return json_success()
 
 @has_request_variables
 def json_fetch_raw_message(request: HttpRequest, user_profile: UserProfile,
-                           message_id: int=REQ(converter=to_non_negative_int)) -> HttpResponse:
+                           message_id: int=REQ(converter=to_non_negative_int,
+                                               path_only=True)) -> HttpResponse:
     (message, user_message) = access_message(user_profile, message_id)
     return json_success({"raw_content": message.content})
 
@@ -1563,7 +1598,7 @@ def render_message_backend(request: HttpRequest, user_profile: UserProfile,
 @has_request_variables
 def messages_in_narrow_backend(request: HttpRequest, user_profile: UserProfile,
                                msg_ids: List[int]=REQ(validator=check_list(check_int)),
-                               narrow: Optional[List[Dict[str, Any]]]=REQ(converter=narrow_parameter)
+                               narrow: OptionalNarrowListT=REQ(converter=narrow_parameter)
                                ) -> HttpResponse:
 
     first_visible_message_id = get_first_visible_message_id(user_profile.realm)

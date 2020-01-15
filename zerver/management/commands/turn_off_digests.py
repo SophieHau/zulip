@@ -1,8 +1,8 @@
-
 from django.core.management.base import CommandParser
 
 from zerver.lib.actions import do_change_notification_settings
 from zerver.lib.management import ZulipBaseCommand
+
 
 class Command(ZulipBaseCommand):
     help = """Turn off digests for a subdomain/string_id or specified set of email addresses."""
@@ -27,4 +27,4 @@ class Command(ZulipBaseCommand):
             else:
                 already_disabled_prefix = "(already off) "
             print("%s%s <%s>" % (already_disabled_prefix, user_profile.full_name,
-                                 user_profile.email))
+                                 user_profile.delivery_email))

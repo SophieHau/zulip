@@ -1,7 +1,6 @@
-
 import django_otp
 from two_factor.utils import default_device
-from django_otp import user_has_device, _user_is_authenticated
+from django_otp import user_has_device
 
 from django.contrib.auth.decorators import user_passes_test as django_user_passes_test
 from django.contrib.auth.models import AnonymousUser
@@ -22,9 +21,10 @@ from zerver.lib.exceptions import UnexpectedWebhookEventType
 from zerver.lib.queue import queue_json_publish
 from zerver.lib.subdomains import get_subdomain, user_matches_subdomain
 from zerver.lib.timestamp import datetime_to_timestamp, timestamp_to_datetime
-from zerver.lib.utils import statsd, is_remote_server
+from zerver.lib.utils import statsd, is_remote_server, has_api_key_format
 from zerver.lib.exceptions import JsonableError, ErrorCode, \
-    InvalidJSONError, InvalidAPIKeyError
+    InvalidJSONError, InvalidAPIKeyError, InvalidAPIKeyFormatError, \
+    OrganizationAdministratorRequired
 from zerver.lib.types import ViewFuncT
 from zerver.lib.validator import to_non_negative_int
 
@@ -137,7 +137,7 @@ def require_realm_admin(func: ViewFuncT) -> ViewFuncT:
     @wraps(func)
     def wrapper(request: HttpRequest, user_profile: UserProfile, *args: Any, **kwargs: Any) -> HttpResponse:
         if not user_profile.is_realm_admin:
-            raise JsonableError(_("Must be an organization administrator"))
+            raise OrganizationAdministratorRequired()
         return func(request, user_profile, *args, **kwargs)
     return wrapper  # type: ignore # https://github.com/python/mypy/issues/1927
 
@@ -266,6 +266,9 @@ def validate_account_and_subdomain(request: HttpRequest, user_profile: UserProfi
         raise JsonableError(_("Account is not associated with this subdomain"))
 
 def access_user_by_api_key(request: HttpRequest, api_key: str, email: Optional[str]=None) -> UserProfile:
+    if not has_api_key_format(api_key):
+        raise InvalidAPIKeyFormatError()
+
     try:
         user_profile = get_user_profile_by_api_key(api_key)
     except UserProfile.DoesNotExist:
@@ -531,6 +534,18 @@ def require_member_or_admin(view_func: ViewFuncT) -> ViewFuncT:
             raise JsonableError(_("Not allowed for guest users"))
         if user_profile.is_bot:
             return json_error(_("This endpoint does not accept bot requests."))
+        return view_func(request, user_profile, *args, **kwargs)
+    return _wrapped_view_func  # type: ignore # https://github.com/python/mypy/issues/1927
+
+def require_user_group_edit_permission(view_func: ViewFuncT) -> ViewFuncT:
+    @require_member_or_admin
+    @wraps(view_func)
+    def _wrapped_view_func(request: HttpRequest, user_profile: UserProfile,
+                           *args: Any, **kwargs: Any) -> HttpResponse:
+        realm = user_profile.realm
+        if realm.user_group_edit_policy != Realm.USER_GROUP_EDIT_POLICY_MEMBERS and \
+                not user_profile.is_realm_admin:
+            raise OrganizationAdministratorRequired()
         return view_func(request, user_profile, *args, **kwargs)
     return _wrapped_view_func  # type: ignore # https://github.com/python/mypy/issues/1927
 
@@ -848,7 +863,7 @@ def zulip_otp_required(view: Any=None,
         if not if_configured:
             return True
 
-        return user.is_verified() or (_user_is_authenticated(user)
+        return user.is_verified() or (user.is_authenticated
                                       and not user_has_device(user))
 
     decorator = django_user_passes_test(test,

@@ -1,8 +1,5 @@
 {% extends "zerver/base.html" %}
-
-{% block porticocustomhead %}
-{{ render_bundle('portico') }}
-{% endblock %}
+{% set entrypoint = "digest" %}
 
 {% block content %}
 <body>

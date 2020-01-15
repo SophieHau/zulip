@@ -15,7 +15,7 @@ options for doing so:
 * Using the Zulip Botserver, which is a simple Flask server for
   running a bot in production, and connecting that to Zulip's outgoing
   webhooks feature.  This can be deployed in environments like
-  Heroko's free tier without running a persistent process.
+  Heroku's free tier without running a persistent process.
 
 ## Zulip Botserver
 
@@ -30,12 +30,47 @@ the Outgoing Webhooks API, but the Botserver is designed to make it
 easy for a novice Python programmer to write a new bot and deploy it
 in production.
 
+### How Botserver works
+
+Zulip Botserver starts a web server that listens to incoming messages
+from your main Zulip server. The sequence of events in a successful
+Botserver interaction are:
+
+1. Your bot user is mentioned or receives a private message:
+
+    ```
+    @**My Bot User** hello world
+    ```
+
+1. The Zulip server sends a POST request to the Botserver on `https://bot-server.example.com/`:
+
+    ```
+    {
+      "message":{
+        "content":"@**My Bot User** hello world",
+      },
+      "bot_email":"myuserbot-bot@example.com",
+      "trigger":"mention",
+      "token":"XXXX"
+    }
+    ```
+
+    This url is configured in the Zulip web-app in your Bot User's settings.
+
+1. The Botserver searches for a bot to handle the message.
+
+1. The Botserver executes your bot's `handle_message` code.
+
+Your bot's code should work just like it does with `zulip-run-bot`;
+for example, you reply using
+[bot_handler.send_reply](writing-bots#bot_handlersend_reply)).
+
 ### Installing the Zulip Botserver
 
-Install the `zulip_botserver` PyPI package using `pip`:
+Install the `zulip_botserver` package:
 
 ```
-pip install zulip_botserver
+pip3 install zulip_botserver
 ```
 
 ### Running a bot using the Zulip Botserver
@@ -117,6 +152,17 @@ Botserver process.  You can do this with the following procedure.
     site=http://hostname
     ```
 
+    To run an external bot, enter the path to the bot's python file in the square
+    brackets `[]`. For example, if we want to run `~/Documents/my_new_bot.py`, our
+    new section could look like this:
+
+    ```
+    [~/Documents/my_new_bot.py]
+    email=foo-bot@hostname
+    key=dOHHlyqgpt5g0tVuVl6NHxDLlc9eFRX4
+    site=http://hostname
+    ```
+
 1.  Run the Zulip Botserver by passing the `botserverrc` to it. The
     command format is:
 
@@ -181,3 +227,31 @@ running it manually.
 
     The standard output of the Botserver will be logged to the path in
     your *supervisord* configuration.
+
+If you are hosting the Botserver yourself (as opposed to using a
+hosting service that provides SSL), we recommend securing your
+Botserver with SSL using an `nginx` or `Apache` reverse proxy and
+[Certbot](https://certbot.eff.org/).
+
+### Troubleshooting
+
+1. Make sure the API key you're using is for an [Outgoing webhook
+   bot](https://zulipchat.com/api/outgoing-webhooks) and you've
+   correctly configured the URL for your Botserver.
+
+1.  Your Botserver needs to be accessible from your Zulip server over
+    HTTP(S).  Make sure any firewall allows the connection.  We
+    recommend using [zulip-run-bot](running-bots) instead for
+    development/testing on a laptop or other non-server system.
+
+    If your Zulip server is self-hosted, you can test by running `curl
+    http://zulipbotserver.example.com:5002` from your Zulip server;
+    the output should be:
+
+    ```
+    $ curl http://zulipbotserver.example.com:5002/
+    <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+    <title>405 Method Not Allowed</title>
+    <h1>Method Not Allowed</h1>
+    <p>The method is not allowed for the requested URL.</p>
+    ```

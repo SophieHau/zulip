@@ -118,7 +118,7 @@ run_test('list_render', () => {
 
     widget.render();
 
-    var expected_html = '<div>apple</div><div>banana</div>';
+    let expected_html = '<div>apple</div><div>banana</div>';
     assert.deepEqual(container.appended_data.html(), expected_html);
 
     // Set up our fake geometry so it forces a scroll action.
@@ -178,14 +178,12 @@ function sort_button(opts) {
         };
     }
 
-    var button;
+    let button;
 
     const $button = {
         data: data,
-        parents: lookup('table', {
-            next: lookup('.progressive-table-wrapper', {
-                data: lookup('list-render', opts.list_name),
-            }),
+        closest: lookup('.progressive-table-wrapper', {
+            data: lookup('list-render', opts.list_name),
         }),
         hasClass: lookup('active', opts.active),
         siblings: lookup('.active', {
@@ -212,7 +210,7 @@ function sort_button(opts) {
 run_test('sorting', () => {
     const {container} = make_containers();
 
-    var cleared;
+    let cleared;
     container.html = (html) => {
         assert.equal(html, '');
         cleared = true;
@@ -239,9 +237,9 @@ run_test('sorting', () => {
 
     list_render.create(container, list, opts);
 
-    var button_opts;
-    var button;
-    var expected_html;
+    let button_opts;
+    let button;
+    let expected_html;
 
     button_opts = {
         sort_type: 'alphabetic',

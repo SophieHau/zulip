@@ -1,11 +1,10 @@
-
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Tuple
+from zerver.lib.types import DisplayRecipientT
 
 from confirmation.models import one_click_unsubscribe_link
 from django.conf import settings
 from django.utils.timezone import now as timezone_now
 from django.contrib.auth import get_backends
-from django_auth_ldap.backend import LDAPBackend
 
 from zerver.decorator import statsd_increment
 from zerver.lib.message import bulk_access_messages
@@ -225,7 +224,7 @@ def build_message_list(user_profile: UserProfile, messages: List[Message]) -> Li
     #    },
     # ]
 
-    messages.sort(key=lambda message: message.pub_date)
+    messages.sort(key=lambda message: message.date_sent)
 
     for message in messages:
         header = message_header(user_profile, message)
@@ -251,7 +250,7 @@ def build_message_list(user_profile: UserProfile, messages: List[Message]) -> Li
     return messages_to_render
 
 def get_narrow_url(user_profile: UserProfile, message: Message,
-                   display_recipient: Optional[Union[str, List[Dict[str, Any]]]]=None,
+                   display_recipient: Optional[DisplayRecipientT]=None,
                    stream: Optional[Stream]=None) -> str:
     """The display_recipient and stream arguments are optional.  If not
     provided, we'll compute them from the message; they exist as a
@@ -330,9 +329,9 @@ def do_send_missedmessage_events_reply_in_zulip(user_profile: UserProfile,
     triggers = list(message['trigger'] for message in missed_messages)
     unique_triggers = set(triggers)
     context.update({
-        'mention': 'mentioned' in unique_triggers,
+        'mention': 'mentioned' in unique_triggers or 'wildcard_mentioned' in unique_triggers,
         'stream_email_notify': 'stream_email_notify' in unique_triggers,
-        'mention_count': triggers.count('mentioned'),
+        'mention_count': triggers.count('mentioned') + triggers.count("wildcard_mentioned"),
     })
 
     # If this setting (email mirroring integration) is enabled, only then
@@ -384,10 +383,8 @@ def do_send_missedmessage_events_reply_in_zulip(user_profile: UserProfile,
         # Keep only the senders who actually mentioned the user
         if context['mention']:
             senders = list(set(m['message'].sender for m in missed_messages
-                           if m['trigger'] == 'mentioned'))
-            # TODO: When we add wildcard mentions that send emails, we
-            # should make sure the right logic applies here.
-
+                               if m['trigger'] == 'mentioned' or
+                               m['trigger'] == 'wildcard_mentioned'))
         message = missed_messages[0]['message']
         stream = Stream.objects.only('id', 'name').get(id=message.recipient.type_id)
         stream_header = "%s > %s" % (stream.name, message.topic_name())
@@ -421,6 +418,9 @@ def do_send_missedmessage_events_reply_in_zulip(user_profile: UserProfile,
         # However, one must ensure the Zulip server is in the SPF
         # record for the domain, or there will be spam/deliverability
         # problems.
+        #
+        # Also, this setting is not really compatible with
+        # EMAIL_ADDRESS_VISIBILITY_ADMINS.
         sender = senders[0]
         from_name, from_address = (sender.full_name, sender.email)
         context.update({
@@ -477,7 +477,7 @@ def handle_missedmessage_emails(user_profile_id: int,
     }
 
     for msg_list in messages_by_bucket.values():
-        msg = min(msg_list, key=lambda msg: msg.pub_date)
+        msg = min(msg_list, key=lambda msg: msg.date_sent)
         if msg.is_stream_message():
             context_messages = get_context_for_message(msg)
             filtered_context_messages = bulk_access_messages(user_profile, context_messages)
@@ -550,8 +550,8 @@ def enqueue_welcome_emails(user: UserProfile, realm_creation: bool=False) -> Non
         'keyboard_shortcuts_link': user.realm.uri + '/help/keyboard-shortcuts',
         'realm_name': user.realm.name,
         'realm_creation': realm_creation,
-        'email': user.email,
-        'is_realm_admin': user.is_realm_admin,
+        'email': user.delivery_email,
+        'is_realm_admin': user.role == UserProfile.ROLE_REALM_ADMINISTRATOR,
     })
     if user.is_realm_admin:
         context['getting_started_link'] = (user.realm.uri +
@@ -559,16 +559,18 @@ def enqueue_welcome_emails(user: UserProfile, realm_creation: bool=False) -> Non
     else:
         context['getting_started_link'] = "https://zulipchat.com"
 
-    from zproject.backends import email_belongs_to_ldap
+    # Imported here to avoid import cycles.
+    from zproject.backends import email_belongs_to_ldap, ZulipLDAPAuthBackend
 
-    if email_belongs_to_ldap(user.realm, user.email):
+    if email_belongs_to_ldap(user.realm, user.delivery_email):
         context["ldap"] = True
-        if settings.LDAP_APPEND_DOMAIN:
-            for backend in get_backends():
-                if isinstance(backend, LDAPBackend):
-                    context["ldap_username"] = backend.django_to_ldap_username(user.email)
-        elif not settings.LDAP_EMAIL_ATTR:
-            context["ldap_username"] = user.email
+        for backend in get_backends():
+            # If the user is doing authentication via LDAP, Note that
+            # we exclude ZulipLDAPUserPopulator here, since that
+            # isn't used for authentication.
+            if isinstance(backend, ZulipLDAPAuthBackend):
+                context["ldap_username"] = backend.django_to_ldap_username(user.delivery_email)
+                break
 
     send_future_email(
         "zerver/emails/followup_day1", user.realm, to_user_ids=[user.id], from_name=from_name,

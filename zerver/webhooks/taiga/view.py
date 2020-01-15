@@ -6,9 +6,8 @@ Tips for notification output:
 value should always be in bold; otherwise the subject of US/task
 should be in bold.
 """
-
-from typing import Any, Dict, List, Mapping, Optional, Tuple
 import string
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from django.http import HttpRequest, HttpResponse
 
@@ -17,6 +16,7 @@ from zerver.lib.request import REQ, has_request_variables
 from zerver.lib.response import json_success
 from zerver.lib.webhooks.common import check_send_webhook_message
 from zerver.models import UserProfile
+
 
 @api_key_only_webhook_view('Taiga')
 @has_request_variables
@@ -123,6 +123,9 @@ templates = {
         'description_diff': u'{user} updated description of issue **{subject}**.',
         'commented': u'{user} commented on issue **{subject}**.',
         'delete': u'{user} deleted issue **{subject}**.'
+    },
+    'webhook_test': {
+        'test': u'{user} triggered a test of the Taiga integration.'
     },
 }
 
@@ -242,6 +245,16 @@ def parse_change_event(change_type: str, message: Mapping[str, Any]) -> Optional
     evt.update({"type": message["type"], "event": event_type, "values": values})
     return evt
 
+def parse_webhook_test(message: Mapping[str, Any]) -> Dict[str, Any]:
+    return {
+        "type": "webhook_test",
+        "event": "test",
+        "values": {
+            "user": get_owner_name(message),
+            "end_type": "test"
+        }
+    }
+
 
 def parse_message(message: Mapping[str, Any]) -> List[Dict[str, Any]]:
     """ Parses the payload by delegating to specialized functions. """
@@ -256,6 +269,8 @@ def parse_message(message: Mapping[str, Any]) -> List[Dict[str, Any]]:
                     events.append(parsed_event)
         if message["change"]["comment"]:
             events.append(parse_comment(message))
+    elif message["action"] == "test":
+        events.append(parse_webhook_test(message))
 
     return events
 
@@ -263,7 +278,7 @@ def generate_content(data: Mapping[str, Any]) -> str:
     """ Gets the template string and formats it with parsed data. """
     template = templates[data['type']][data['event']]
     content = template.format(**data['values'])
-    end_type = ''
+    end_type = 'end_type'
     if template.endswith('{subject}**.'):
         end_type = 'subject'
     elif template.endswith('{epic_subject}**.'):

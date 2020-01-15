@@ -1,8 +1,4 @@
-var favicon = (function () {
-
-var exports = {};
-
-var favicon_selector = 'link[rel="shortcut icon"]';
+const favicon_selector = 'link[rel="shortcut icon"]';
 
 // We need to reset the favicon after changing the
 // window.location.hash or Firefox will drop the favicon.  See
@@ -28,9 +24,4 @@ exports.set = function (url) {
 };
 
 
-return exports;
-}());
-if (typeof module !== 'undefined') {
-    module.exports = favicon;
-}
-window.favicon = favicon;
+window.favicon = exports;

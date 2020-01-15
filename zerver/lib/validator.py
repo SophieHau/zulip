@@ -30,7 +30,7 @@ import ujson
 from django.utils.translation import ugettext as _
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email, URLValidator
-from typing import Iterable, Optional, Tuple, cast
+from typing import Iterable, Optional, Tuple, cast, List
 
 from datetime import datetime
 from zerver.lib.request import JsonableError
@@ -91,6 +91,17 @@ def check_int(var_name: str, val: object) -> Optional[str]:
     if not isinstance(val, int):
         return _('%s is not an integer') % (var_name,)
     return None
+
+def check_int_in(possible_values: List[int]) -> Validator:
+    def validator(var_name: str, val: object) -> Optional[str]:
+        not_int = check_int(var_name, val)
+        if not_int is not None:
+            return not_int
+        if val not in possible_values:
+            return _("Invalid %s") % (var_name,)
+        return None
+
+    return validator
 
 def check_float(var_name: str, val: object) -> Optional[str]:
     if not isinstance(val, float):
@@ -228,14 +239,14 @@ def check_url(var_name: str, val: object) -> Optional[str]:
     except ValidationError:
         return _('%s is not a URL') % (var_name,)
 
-def check_url_pattern(var_name: str, val: object) -> Optional[str]:
+def check_external_account_url_pattern(var_name: str, val: object) -> Optional[str]:
     error = check_string(var_name, val)
     if error:
         return error
     val = cast(str, val)
 
     if val.count('%(username)s') != 1:
-        return _('username should appear exactly once in pattern.')
+        return _('Malformed URL pattern.')
     url_val = val.replace('%(username)s', 'username')
 
     error = check_url(var_name, url_val)

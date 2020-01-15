@@ -14,7 +14,7 @@ from django.conf import settings
 from zerver.forms import OurAuthenticationForm
 from zerver.lib.actions import do_deactivate_realm, do_deactivate_user, \
     do_reactivate_user, do_reactivate_realm, do_set_realm_property
-from zerver.lib.exceptions import JsonableError
+from zerver.lib.exceptions import JsonableError, InvalidAPIKeyError, InvalidAPIKeyFormatError
 from zerver.lib.initial_password import initial_password
 from zerver.lib.test_helpers import (
     HostRequestMock,
@@ -25,6 +25,7 @@ from zerver.lib.test_classes import (
 from zerver.lib.response import json_response, json_success
 from zerver.lib.users import get_api_key
 from zerver.lib.user_agent import parse_user_agent
+from zerver.lib.utils import generate_api_key, has_api_key_format
 from zerver.lib.request import \
     REQ, has_request_variables, RequestVariableMissingError, \
     RequestVariableConversionError, RequestConfusingParmsError
@@ -45,7 +46,7 @@ from zerver.lib.validator import (
     check_string, check_dict, check_dict_only, check_bool, check_float, check_int, check_list, Validator,
     check_variable_type, equals, check_none_or, check_url, check_short_string,
     check_string_fixed_length, check_capped_string, check_color, to_non_negative_int,
-    check_string_or_int_list, check_string_or_int
+    check_string_or_int_list, check_string_or_int, check_int_in
 )
 from zerver.models import \
     get_realm, get_user, UserProfile, Realm
@@ -182,7 +183,7 @@ class DecoratorTestCase(TestCase):
         with self.assertRaisesRegex(AssertionError, "converter and validator are mutually exclusive"):
             @has_request_variables
             def get_total(request: HttpRequest,
-                          numbers: Iterable[int]=REQ(validator=check_list(check_int),
+                          numbers: Iterable[int]=REQ(validator=check_list(check_int),  # type: ignore  # The condition being tested is in fact an error.
                                                      converter=lambda x: [])) -> int:
                 return sum(numbers)  # nocoverage -- isn't intended to be run
 
@@ -264,7 +265,7 @@ class DecoratorTestCase(TestCase):
         with self.assertRaises(Exception) as cm:
             @has_request_variables
             def test(request: HttpRequest,
-                     payload: Any=REQ(argument_type="invalid")) -> None:
+                     payload: Any=REQ(argument_type="invalid")) -> None:  # type: ignore  # The condition being tested is in fact an error.
                 # Any is ok; exception should occur in decorator:
                 pass  # nocoverage # this function isn't meant to be called
             test(request)
@@ -290,7 +291,7 @@ class DecoratorTestCase(TestCase):
         webhook_client_name = "ZulipClientNameWebhook"
 
         request = HostRequestMock()
-        request.POST['api_key'] = 'not_existing_api_key'
+        request.POST['api_key'] = 'X'*32
 
         with self.assertRaisesRegex(JsonableError, "Invalid API key"):
             my_webhook(request)  # type: ignore # mypy doesn't seem to apply the decorator
@@ -757,6 +758,11 @@ class ValidatorTestCase(TestCase):
 
         x = "hi"
         self.assertEqual(check_capped_string(5)('x', x), None)
+
+    def test_check_int_in(self) -> None:
+        self.assertEqual(check_int_in([1])("Test", 1), None)
+        self.assertEqual(check_int_in([1])("Test", 2), "Invalid Test")
+        self.assertEqual(check_int_in([1])("Test", "t"), "Test is not an integer")
 
     def test_check_short_string(self) -> None:
         x = "hello"  # type: Any
@@ -1264,6 +1270,7 @@ class InactiveUserTest(ZulipTestCase):
 
 class TestIncomingWebhookBot(ZulipTestCase):
     def setUp(self) -> None:
+        super().setUp()
         zulip_realm = get_realm('zulip')
         self.webhook_bot = get_user('webhook-bot@zulip.com', zulip_realm)
 
@@ -1281,19 +1288,31 @@ class TestIncomingWebhookBot(ZulipTestCase):
 
 class TestValidateApiKey(ZulipTestCase):
     def setUp(self) -> None:
+        super().setUp()
         zulip_realm = get_realm('zulip')
         self.webhook_bot = get_user('webhook-bot@zulip.com', zulip_realm)
         self.default_bot = get_user('default-bot@zulip.com', zulip_realm)
 
+    def test_has_api_key_format(self) -> None:
+        self.assertFalse(has_api_key_format("TooShort"))
+        # Has an invalid character:
+        self.assertFalse(has_api_key_format("32LONGXXXXXXXXXXXXXXXXXXXXXXXXX-"))
+        # Too long:
+        self.assertFalse(has_api_key_format("33LONGXXXXXXXXXXXXXXXXXXXXXXXXXXX"))
+
+        self.assertTrue(has_api_key_format("VIzRVw2CspUOnEm9Yu5vQiQtJNkvETkp"))
+        for i in range(0, 10):
+            self.assertTrue(has_api_key_format(generate_api_key()))
+
     def test_validate_api_key_if_profile_does_not_exist(self) -> None:
         with self.assertRaises(JsonableError):
-            validate_api_key(HostRequestMock(), 'email@doesnotexist.com', 'api_key')
+            validate_api_key(HostRequestMock(), 'email@doesnotexist.com', 'VIzRVw2CspUOnEm9Yu5vQiQtJNkvETkp')
 
     def test_validate_api_key_if_api_key_does_not_match_profile_api_key(self) -> None:
-        with self.assertRaises(JsonableError):
+        with self.assertRaises(InvalidAPIKeyFormatError):
             validate_api_key(HostRequestMock(), self.webhook_bot.email, 'not_32_length')
 
-        with self.assertRaises(JsonableError):
+        with self.assertRaises(InvalidAPIKeyError):
             # We use default_bot's key but webhook_bot's email address to test
             # the logic when an API key is passed and it doesn't belong to the
             # user whose email address has been provided.
@@ -1709,7 +1728,7 @@ class RestAPITest(ZulipTestCase):
         self.login(self.example_email("hamlet"))
         result = self.client_options('/json/users')
         self.assertEqual(result.status_code, 204)
-        self.assertEqual(str(result['Allow']), 'GET, POST')
+        self.assertEqual(str(result['Allow']), 'GET, HEAD, POST')
 
         result = self.client_options('/json/streams/15')
         self.assertEqual(result.status_code, 204)

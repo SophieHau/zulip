@@ -26,7 +26,7 @@ class EmailChangeTestCase(ZulipTestCase):
 
     def test_confirm_email_change_with_invalid_key(self) -> None:
         self.login(self.example_email("hamlet"))
-        key = 'invalid key'
+        key = 'invalid_key'
         url = confirmation_url(key, 'testserver', Confirmation.EMAIL_CHANGE)
         response = self.client_get(url)
         self.assert_in_success_response(["Whoops. The confirmation link is malformed."], response)
@@ -213,7 +213,7 @@ class EmailChangeTestCase(ZulipTestCase):
                                         response)
         user_profile = get_user_profile_by_id(user_profile.id)
         self.assertEqual(user_profile.delivery_email, new_email)
-        self.assertEqual(user_profile.email, "user4@zulip.testserver")
+        self.assertEqual(user_profile.email, "user{}@zulip.testserver".format(user_profile.id))
         obj.refresh_from_db()
         self.assertEqual(obj.status, 1)
         with self.assertRaises(UserProfile.DoesNotExist):

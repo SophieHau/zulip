@@ -1,4 +1,5 @@
 {% extends "zerver/base.html" %}
+{% set entrypoint = "archive" %}
 
 {% block customhead %}
     <link id="emoji-spritesheet" href="/static/generated/emoji/google-sprite.css" rel="stylesheet" type="text/css">
@@ -10,13 +11,6 @@
         width: auto;
         }
     </style>
-
-    {{ render_bundle('translations', attrs='nonce="%s"' % (csp_nonce,)) }}
-    {{ render_bundle('katex', attrs='nonce="%s"' % (csp_nonce,)) }}
-    {{ render_bundle('portico') }}
-    {{ render_bundle('archive') }}
-    {{ render_bundle('archive-styles') }}
-
 {% endblock %}
 
 {% block content %}

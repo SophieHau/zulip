@@ -1,17 +1,17 @@
 import logging
 import time
-from typing import Any, Dict
 from datetime import timedelta
+from typing import Any, Dict
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils.timezone import now as timezone_now
 
+from zerver.lib.actions import do_send_messages
 from zerver.lib.logging_util import log_to_file
 from zerver.lib.management import sleep_forever
-from zerver.models import ScheduledMessage, Message, get_user_by_delivery_email
-from zerver.lib.actions import do_send_messages
+from zerver.models import Message, ScheduledMessage, get_user_by_delivery_email
 
 ## Setup ##
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ Usage: ./manage.py deliver_scheduled_messages
         message.content = scheduled_message.content
         message.recipient = scheduled_message.recipient
         message.subject = scheduled_message.subject
-        message.pub_date = timezone_now()
+        message.date_sent = timezone_now()
         message.sending_client = scheduled_message.sending_client
 
         delivery_type = scheduled_message.delivery_type

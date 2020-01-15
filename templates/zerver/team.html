@@ -1,15 +1,8 @@
 {% extends "zerver/portico.html" %}
+{% set entrypoint = "landing-page" %}
 
 {% block title %}
 <title>Zulip: the best group chat for open source projects</title>
-{% endblock %}
-
-{% block customhead %}
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script>
-    var contributors_list = {{ contrib|safe }};
-</script>
-{{ render_bundle('landing-page') }}
 {% endblock %}
 
 {% block portico_content %}

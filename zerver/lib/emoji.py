@@ -1,4 +1,3 @@
-
 import os
 import re
 import ujson
@@ -9,6 +8,7 @@ from typing import Optional, Tuple
 from zerver.lib.request import JsonableError
 from zerver.lib.storage import static_path
 from zerver.lib.upload import upload_backend
+from zerver.lib.exceptions import OrganizationAdministratorRequired
 from zerver.models import Reaction, Realm, RealmEmoji, UserProfile
 
 EMOJI_PATH = static_path("generated/emoji")
@@ -26,10 +26,10 @@ with open(EMOTICON_CONVERSIONS_PATH) as fp:
     EMOTICON_CONVERSIONS = ujson.load(fp)
 
 possible_emoticons = EMOTICON_CONVERSIONS.keys()
-possible_emoticon_regexes = map(re.escape, possible_emoticons)  # type: ignore # AnyStr/str issues
-terminal_symbols = ',.;?!()\\[\\] "\'\\n\\t'  # type: str # from composebox_typeahead.js
+possible_emoticon_regexes = (re.escape(emoticon) for emoticon in possible_emoticons)
+terminal_symbols = ',.;?!()\\[\\] "\'\\n\\t'  # from composebox_typeahead.js
 emoticon_regex = ('(?<![^{0}])(?P<emoticon>('.format(terminal_symbols)
-                  + ')|('.join(possible_emoticon_regexes)  # type: ignore # AnyStr/str issues
+                  + ')|('.join(possible_emoticon_regexes)
                   + '))(?![^{0}])'.format(terminal_symbols))
 
 # Translates emoticons to their colon syntax, e.g. `:smiley:`.
@@ -51,9 +51,6 @@ def emoji_name_to_emoji_code(realm: Realm, emoji_name: str) -> Tuple[str, str]:
     if emoji_name in name_to_codepoint:
         return name_to_codepoint[emoji_name], Reaction.UNICODE_EMOJI
     raise JsonableError(_("Emoji '%s' does not exist") % (emoji_name,))
-
-def check_valid_emoji(realm: Realm, emoji_name: str) -> None:
-    emoji_name_to_emoji_code(realm, emoji_name)
 
 def check_emoji_request(realm: Realm, emoji_name: str, emoji_code: str,
                         emoji_type: str) -> None:
@@ -90,7 +87,7 @@ def check_emoji_admin(user_profile: UserProfile, emoji_name: Optional[str]=None)
     if user_profile.is_realm_admin:
         return
     if user_profile.realm.add_emoji_by_admins_only:
-        raise JsonableError(_("Must be an organization administrator"))
+        raise OrganizationAdministratorRequired()
 
     # Otherwise, normal users can add emoji
     if emoji_name is None:

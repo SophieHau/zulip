@@ -31,7 +31,6 @@ from zerver.models import UserProfile, Realm, Client, Huddle, Stream, \
     CustomProfileFieldValue, get_display_recipient, Attachment, get_system_bot, \
     RealmAuditLog, UserHotspot, MutedTopic, Service, UserGroup, \
     UserGroupMembership, BotStorageData, BotConfigData
-from zerver.lib.parallel import run_parallel
 import zerver.lib.upload
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, \
     Union
@@ -98,6 +97,7 @@ ALL_ZULIP_TABLES = {
     'zerver_emailchangestatus',
     'zerver_huddle',
     'zerver_message',
+    'zerver_missedmessageemailaddress',
     'zerver_multiuseinvite',
     'zerver_multiuseinvite_streams',
     'zerver_preregistrationuser',
@@ -144,6 +144,11 @@ NON_EXPORTED_TABLES = {
     'zerver_multiuseinvite_streams',
     'zerver_preregistrationuser',
     'zerver_preregistrationuser_streams',
+
+    # Missed message addresses are low value to export since
+    # missed-message email addresses include the server's hostname and
+    # expire after a few days.
+    'zerver_missedmessageemailaddress',
 
     # When switching servers, clients will need to re-login and
     # reregister for push notifications anyway.
@@ -241,7 +246,7 @@ ANALYTICS_TABLES = {
 # inspecting the corresponding Django models
 DATE_FIELDS = {
     'zerver_attachment': ['create_time'],
-    'zerver_message': ['last_edit_time', 'pub_date'],
+    'zerver_message': ['last_edit_time', 'date_sent'],
     'zerver_realm': ['date_created'],
     'zerver_stream': ['date_created'],
     'zerver_useractivity': ['last_visit'],
@@ -1501,24 +1506,25 @@ def create_soft_link(source: Path, in_progress: bool=True) -> None:
 def launch_user_message_subprocesses(threads: int, output_dir: Path,
                                      consent_message_id: Optional[int]=None) -> None:
     logging.info('Launching %d PARALLEL subprocesses to export UserMessage rows' % (threads,))
+    pids = {}
 
-    def run_job(shard: str) -> int:
+    for shard_id in range(threads):
         arguments = [
             os.path.join(settings.DEPLOY_ROOT, "manage.py"),
             'export_usermessage_batch',
             '--path', str(output_dir),
-            '--thread', shard
+            '--thread', str(shard_id)
         ]
         if consent_message_id is not None:
             arguments.extend(['--consent-message-id', str(consent_message_id)])
 
-        subprocess.call(arguments)
-        return 0
+        process = subprocess.Popen(arguments)
+        pids[process.pid] = shard_id
 
-    for (status, job) in run_parallel(run_job,
-                                      [str(x) for x in range(0, threads)],
-                                      threads=threads):
-        print("Shard %s finished, status %s" % (job, status))
+    while pids:
+        pid, status = os.wait()
+        shard = pids.pop(pid)
+        print('Shard %s finished, status %s' % (shard, status))
 
 def do_export_user(user_profile: UserProfile, output_dir: Path) -> None:
     response = {}  # type: TableData
@@ -1707,10 +1713,14 @@ def get_realm_exports_serialized(user: UserProfile) -> List[Dict[str, Any]]:
                                                event_type=RealmAuditLog.REALM_EXPORTED)
     exports_dict = {}
     for export in all_exports:
+        export_data = ujson.loads(export.extra_data)
+        export_url = zerver.lib.upload.upload_backend.get_export_tarball_url(
+            user.realm, export_data['export_path'])
         exports_dict[export.id] = dict(
             id=export.id,
-            event_time=export.event_time.ctime(),
+            export_time=export.event_time.timestamp(),
             acting_user_id=export.acting_user.id,
-            path=export.extra_data
+            export_url=export_url,
+            deleted_timestamp=export_data.get('deleted_timestamp'),
         )
     return sorted(exports_dict.values(), key=lambda export_dict: export_dict['id'])

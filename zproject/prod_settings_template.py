@@ -51,6 +51,11 @@ EXTERNAL_HOST = 'zulip.example.com'
 # Note that these should just be hostnames, without port numbers.
 #ALLOWED_HOSTS = ['zulip-alias.example.com', '192.0.2.1']
 
+# If EXTERNAL_HOST is not a valid domain name (e.g. an IP address),
+# set FAKE_EMAIL_DOMAIN below to a domain that Zulip can use when
+# generating (fake) email addresses for bots, dummy users, etc.
+#FAKE_EMAIL_DOMAIN = 'fake-domain.example.com'
+
 
 ################
 # Outgoing email (SMTP) settings.
@@ -115,6 +120,7 @@ AUTHENTICATION_BACKENDS = (
     # 'zproject.backends.GoogleAuthBackend',  # Google auth, setup below
     # 'zproject.backends.GitHubAuthBackend',  # GitHub auth, setup below
     # 'zproject.backends.AzureADAuthBackend',  # Microsoft Azure Active Directory auth, setup below
+    # 'zproject.backends.SAMLAuthBackend', # SAML, setup below
     # 'zproject.backends.ZulipLDAPAuthBackend',  # LDAP, setup below
     # 'zproject.backends.ZulipRemoteUserBackend',  # Local SSO, setup docs on readthedocs
 )  # type: Tuple[str, ...]
@@ -134,7 +140,7 @@ AUTHENTICATION_BACKENDS = (
 # (3) Return to "Credentials", and select "Create credentials".
 # Choose "OAuth client ID", and follow prompts to create a consent
 # screen.  Fill in "Authorized redirect URIs" with a value like
-#   https://zulip.example.com/accounts/login/google/done/
+#   https://zulip.example.com/complete/google/
 # based on your value for EXTERNAL_HOST.
 #
 # (4) You should get a client ID and a client secret. Copy them.
@@ -180,6 +186,72 @@ AUTHENTICATION_BACKENDS = (
 #
 #SOCIAL_AUTH_SUBDOMAIN = 'auth'
 
+########
+# SAML Authentication
+#
+# For SAML authentication, you will need to configure the settings
+# below using information from your SAML Identity Provider, as
+# explained in:
+#
+#     https://zulip.readthedocs.io/en/latest/production/authentication-methods.html#saml
+#
+# You will need to modify these SAML settings:
+SOCIAL_AUTH_SAML_ORG_INFO = {
+    "en-US": {
+        "displayname": "Example, Inc. Zulip",
+        "name": "zulip",
+        "url": "%s%s" % ('https://', EXTERNAL_HOST),
+    }
+}
+SOCIAL_AUTH_SAML_ENABLED_IDPS = {
+    # The fields are explained in detail here:
+    #     https://python-social-auth-docs.readthedocs.io/en/latest/backends/saml.html
+    "idp_name": {
+        # Configure entity_id and url according to information provided to you by your IdP:
+        "entity_id": "https://idp.testshib.org/idp/shibboleth",
+        "url": "https://idp.testshib.org/idp/profile/SAML2/Redirect/SSO",
+        # The part below corresponds to what's likely referred to as something like
+        # "Attribute Statements" (with Okta as your IdP) or "Attribute Mapping" (with G Suite).
+        # The names on the right side need to correspond to the names under which
+        # the IdP will send the user attributes. With these defaults, it's expected
+        # that the user's email will be sent with the "email" attribute name,
+        # the first name and the last name with the "first_name", "last_name" attribute names.
+        "attr_user_permanent_id": "email",
+        "attr_first_name": "first_name",
+        "attr_last_name": "last_name",
+        "attr_username": "email",
+        "attr_email": "email",
+        # The "x509cert" attribute is automatically read from
+        # /etc/zulip/saml/idps/{idp_name}.crt; don't specify it here.
+
+        # Optionally, you can edit display_name and display_icon
+        # settings below to change the name and icon that will show on
+        # the login button.
+        "display_name": "SAML",
+        # Path to a square image file containing a logo to appear at
+        # the left end of the login/register buttons for this IDP.
+        # The default of None results in a text-only button.
+        # "display_icon": "/path/to/icon.png",
+    }
+}
+
+SOCIAL_AUTH_SAML_SECURITY_CONFIG = {
+    # If you've set up the optional private and public server keys,
+    # set this to True to enable signing of SAMLRequests using the
+    # private key.
+    "authnRequestsSigned": False,
+}
+
+# These SAML settings you likely won't need to modify.
+SOCIAL_AUTH_SAML_SP_ENTITY_ID = 'https://' + EXTERNAL_HOST
+SOCIAL_AUTH_SAML_TECHNICAL_CONTACT = {
+    "givenName": "Technical team",
+    "emailAddress": ZULIP_ADMINISTRATOR,
+}
+SOCIAL_AUTH_SAML_SUPPORT_CONTACT = {
+    "givenName": "Support team",
+    "emailAddress": ZULIP_ADMINISTRATOR,
+}
 
 ########
 # Azure Active Directory OAuth.
@@ -205,7 +277,6 @@ AUTHENTICATION_BACKENDS = (
 # corresponding email address is "username@example.com", set
 # SSO_APPEND_DOMAIN = "example.com")
 SSO_APPEND_DOMAIN = None  # type: Optional[str]
-
 
 ################
 # Miscellaneous settings.
@@ -322,12 +393,13 @@ ENABLE_GRAVATAR = True
 #DEFAULT_AVATAR_URI = '/local-static/default-avatar.png'
 
 # To access an external postgres database you should define the host name in
-# REMOTE_POSTGRES_HOST, you can define the password in the secrets file in the
+# REMOTE_POSTGRES_HOST, port in REMOTE_POSTGRES_PORT, password in the secrets file in the
 # property postgres_password, and the SSL connection mode in REMOTE_POSTGRES_SSLMODE
 # Valid values for REMOTE_POSTGRES_SSLMODE are documented in the
 # "SSL Mode Descriptions" table in
 #   https://www.postgresql.org/docs/9.5/static/libpq-ssl.html
 #REMOTE_POSTGRES_HOST = 'dbserver.example.com'
+#REMOTE_POSTGRES_PORT = '5432'
 #REMOTE_POSTGRES_SSLMODE = 'require'
 
 # If you want to set a Terms of Service for your server, set the path
@@ -423,12 +495,11 @@ AUTH_LDAP_BIND_DN = ""
 AUTH_LDAP_USER_SEARCH = LDAPSearch("ou=users,dc=example,dc=com",
                                    ldap.SCOPE_SUBTREE, "(uid=%(user)s)")
 
-# Domain to combine with a user's username to figure out their email address.
-#
-# If users log in as e.g. "sam" when their email address is "sam@example.com",
-# set this to "example.com".  If users log in with their full email addresses,
-# leave as None; if the username -> email address mapping isn't so simple,
-# leave as None and see LDAP_EMAIL_ATTR.
+# Configuration to lookup a user's LDAP data given their email address
+# (For Zulip reverse mapping).  If users log in as e.g. "sam" when
+# their email address is "sam@example.com", set LDAP_APPEND_DOMAIN to
+# "example.com".  Otherwise, leave LDAP_APPEND_DOMAIN=None and set
+# AUTH_LDAP_REVERSE_EMAIL_SEARCH and AUTH_LDAP_USERNAME_ATTR below.
 LDAP_APPEND_DOMAIN = None  # type: Optional[str]
 
 # LDAP attribute to find a user's email address.
@@ -436,6 +507,16 @@ LDAP_APPEND_DOMAIN = None  # type: Optional[str]
 # Leave as None if users log in with their email addresses,
 # or if using LDAP_APPEND_DOMAIN.
 LDAP_EMAIL_ATTR = None  # type: Optional[str]
+
+# AUTH_LDAP_REVERSE_EMAIL_SEARCH works like AUTH_LDAP_USER_SEARCH and
+# should query an LDAP user given their email address.  It and
+# AUTH_LDAP_USERNAME_ATTR are required when LDAP_APPEND_DOMAIN is None.
+#AUTH_LDAP_REVERSE_EMAIL_SEARCH = LDAPSearch("ou=users,dc=example,dc=com",
+#                                            ldap.SCOPE_SUBTREE, "(email=%(email)s)")
+
+# AUTH_LDAP_USERNAME_ATTR should be the Zulip username attribute
+# (defined in AUTH_LDAP_USER_SEARCH).
+#AUTH_LDAP_USERNAME_ATTR = "uid"
 
 # This map defines how to populate attributes of a Zulip user from LDAP.
 #

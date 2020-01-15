@@ -1,7 +1,23 @@
-var message_store = (function () {
+const stored_messages = {};
 
-var exports = {};
-var stored_messages = {};
+/*
+    We keep a set of user_ids for all people
+    who have sent stream messages or who have
+    been on PMs sent by the user.
+
+    We will use this in search to prevent really
+    large result sets for realms that have lots
+    of users who haven't sent messages recently.
+
+    We'll likely eventually want to replace this with
+    accessing some combination of data from recent_senders
+    and pm_conversations for better accuracy.
+*/
+const message_user_ids = new Set();
+
+exports.user_ids = function () {
+    return Array.from(message_user_ids);
+};
 
 exports.get = function get(message_id) {
     return stored_messages[message_id];
@@ -16,7 +32,7 @@ exports.each = function (f) {
 exports.get_pm_emails = function (message) {
 
     function email(user_id) {
-        var person = people.get_person_from_user_id(user_id);
+        const person = people.get_person_from_user_id(user_id);
         if (!person) {
             blueslip.error('Unknown user id ' + user_id);
             return '?';
@@ -24,8 +40,8 @@ exports.get_pm_emails = function (message) {
         return person.email;
     }
 
-    var user_ids = people.pm_with_user_ids(message);
-    var emails = _.map(user_ids, email).sort();
+    const user_ids = people.pm_with_user_ids(message);
+    const emails = _.map(user_ids, email).sort();
 
     return emails.join(', ');
 };
@@ -33,7 +49,7 @@ exports.get_pm_emails = function (message) {
 exports.get_pm_full_names = function (message) {
 
     function name(user_id) {
-        var person = people.get_person_from_user_id(user_id);
+        const person = people.get_person_from_user_id(user_id);
         if (!person) {
             blueslip.error('Unknown user id ' + user_id);
             return '?';
@@ -41,14 +57,14 @@ exports.get_pm_full_names = function (message) {
         return person.full_name;
     }
 
-    var user_ids = people.pm_with_user_ids(message);
-    var names = _.map(user_ids, name).sort();
+    const user_ids = people.pm_with_user_ids(message);
+    const names = _.map(user_ids, name).sort();
 
     return names.join(', ');
 };
 
 exports.process_message_for_recent_private_messages = function (message) {
-    var user_ids = people.pm_with_user_ids(message);
+    const user_ids = people.pm_with_user_ids(message);
     if (!user_ids) {
         return;
     }
@@ -57,13 +73,11 @@ exports.process_message_for_recent_private_messages = function (message) {
         pm_conversations.set_partner(user_id);
     });
 
-    var user_ids_string = user_ids.join(',');
-
-    pm_conversations.recent.insert(user_ids_string, message.timestamp);
+    pm_conversations.recent.insert(user_ids, message.id);
 };
 
 exports.set_message_booleans = function (message) {
-    var flags = message.flags || [];
+    const flags = message.flags || [];
 
     function convert_flag(flag_name) {
         return flags.indexOf(flag_name) >= 0;
@@ -112,7 +126,7 @@ exports.update_booleans = function (message, flags) {
 };
 
 exports.add_message_metadata = function (message) {
-    var cached_msg = stored_messages[message.id];
+    const cached_msg = stored_messages[message.id];
     if (cached_msg !== undefined) {
         // Copy the match topic and content over if they exist on
         // the new message
@@ -127,7 +141,7 @@ exports.add_message_metadata = function (message) {
     people.extract_people_from_message(message);
     people.maybe_incr_recipient_count(message);
 
-    var sender = people.get_person_from_user_id(message.sender_id);
+    const sender = people.get_person_from_user_id(message.sender_id);
     if (sender) {
         message.sender_full_name = sender.full_name;
         message.sender_email = sender.email;
@@ -150,6 +164,7 @@ exports.add_message_metadata = function (message) {
         });
 
         recent_senders.process_message_for_senders(message);
+        message_user_ids.add(message.sender_id);
         break;
 
     case 'private':
@@ -161,6 +176,12 @@ exports.add_message_metadata = function (message) {
         message.to_user_ids = people.pm_reply_user_string(message);
 
         exports.process_message_for_recent_private_messages(message);
+
+        if (people.is_my_user_id(message.sender_id)) {
+            _.each(message.display_recipient, (recip) => {
+                message_user_ids.add(recip.id);
+            });
+        }
         break;
     }
 
@@ -173,8 +194,8 @@ exports.add_message_metadata = function (message) {
 };
 
 exports.reify_message_id = function (opts) {
-    var old_id = opts.old_id;
-    var new_id = opts.new_id;
+    const old_id = opts.old_id;
+    const new_id = opts.new_id;
     if (pointer.furthest_read === old_id) {
         pointer.set_furthest_read(new_id);
     }
@@ -194,10 +215,4 @@ exports.reify_message_id = function (opts) {
     });
 };
 
-return exports;
-
-}());
-if (typeof module !== 'undefined') {
-    module.exports = message_store;
-}
-window.message_store = message_store;
+window.message_store = exports;

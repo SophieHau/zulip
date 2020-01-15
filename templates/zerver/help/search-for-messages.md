@@ -26,13 +26,13 @@ Here is the **full list of search operators**.
 * `stream:design`: Search within the stream `#design`.
 * `stream:design topic:emoji+picker`: Search within the topic `emoji picker`.
 * `is:private`: Search all your private messages.
-* `pm-with:ada@zulip.com`: Search 1-on-1 messages with Ada.
-* `group-pm-with:ada@zulip.com`: Search group private messages that
-  include Ada.
+* `pm-with:ada@zulip.com`: Search 1-on-1 private messages between you and Ada.
 * `sender:ada@zulip.com`: Search messages sent by Ada.
 * `sender:me`: Search sent messages.
 * `near:12345`: Show messages around the message with ID `12345`.
 * `id:12345`: Show only message `12345`.
+* `streams:public`: Search the history of all [public
+  streams](/help/change-the-privacy-of-a-stream) in the organization.
 
 * `is:alerted`: See [alert words](/help/add-an-alert-word).
 * `is:mentioned`: See [mentions](/help/mention-a-user-or-group).
@@ -41,6 +41,32 @@ Here is the **full list of search operators**.
 * `has:link`
 * `has:image`
 * `has:attachment`
+* `pm-with:ada@zulip.com,bob@zulip.com`: Search private message conversation
+  between you, Bob, and Ada.
+* `group-pm-with:ada@zulip.com,bob@zulip.com`: Search all group
+  private messages that include Ada and Bob.
+
+## Searching shared history
+
+Zulip's [stream permissions](/help/stream-permissions) model allows
+access to the full history of public streams and [private streams with
+shared history](/help/stream-permissions), including messages sent
+before you joined the stream (or organization) or those sent to public
+streams you are not subscribed to.
+
+By default, Zulip searches messages in your personal history, i.e. the
+messages you actually received.  This avoids cluttering search results
+with irrelevant messages from public streams you're not interested in.
+
+If you'd like to instead search the organization's shared history, any
+query using the `stream:` or `streams:` operators will search all
+messages that you have access to in the selected stream(s).  For
+example:
+
+* `streams:public keyword` searches for `keyword` in all public
+  streams in the organization.
+* `streams:public sender:user@example.com` searches for all messages
+  sent by the user to any public stream.
 
 ## Words and phrases
 
@@ -62,14 +88,3 @@ Note that Zulip ignores common words like `a`, `the`, and about 100
 others. A quirk in Zulip's current implementation means that if all of your
 keywords are ignored, we'll return 0 search results.
 
-## Other notes
-
-* By default, search only displays messages that you actually
-  received. However, if your search is restricted to a stream where you have
-  [access to stream history](/help/stream-permissions), you can search for
-  messages from before you subscribed to the stream (or even joined your
-  Zulip organization).
-
-* To see the list of search operators in-app, click the **gear** (<i
-  class="fa fa-cog"></i>) icon in the upper right, and select
-  **Search operators**.

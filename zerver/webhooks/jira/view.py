@@ -1,7 +1,7 @@
 # Webhooks for external integrations.
 import re
 import string
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Callable, Dict, List, Optional
 
 from django.db.models import Q
 from django.http import HttpRequest, HttpResponse
@@ -9,19 +9,11 @@ from django.http import HttpRequest, HttpResponse
 from zerver.decorator import api_key_only_webhook_view
 from zerver.lib.request import REQ, has_request_variables
 from zerver.lib.response import json_success
-from zerver.lib.webhooks.common import check_send_webhook_message, \
-    UnexpectedWebhookEventType
+from zerver.lib.webhooks.common import UnexpectedWebhookEventType, \
+    check_send_webhook_message
 from zerver.models import Realm, UserProfile, get_user_by_delivery_email
 
 IGNORED_EVENTS = [
-    # The reason we don't handle any comment_* events is that, depending
-    # on the JIRA version, comment payloads may or may not contain the
-    # required information about the issue that was commented on. It
-    # is better to receive comment notifications via the issue_updated
-    # event, which seems to contain all necessary data across JIRA versions.
-    'comment_deleted',
-    'comment_created',
-    'comment_updated',
     'issuelink_created',
     'attachment_created',
     'issuelink_deleted',
@@ -253,10 +245,44 @@ def handle_deleted_issue_event(payload: Dict[str, Any], user_profile: UserProfil
         punctuation=punctuation
     )
 
+def normalize_comment(comment: str) -> str:
+    # Here's how Jira escapes special characters in their payload:
+    # ,.?\\!\n\"'\n\\[]\\{}()\n@#$%^&*\n~`|/\\\\
+    # for some reason, as of writing this, ! has two '\' before it.
+    normalized_comment = comment.replace("\\!", "!")
+    return normalized_comment
+
+def handle_comment_created_event(payload: Dict[str, Any], user_profile: UserProfile) -> str:
+    return "{author} commented on issue: *\"{title}\"\
+*\n``` quote\n{comment}\n```\n".format(
+        author = payload["comment"]["author"]["displayName"],
+        title = payload["issue"]["fields"]["summary"],
+        comment = normalize_comment(payload["comment"]["body"])
+    )
+
+def handle_comment_updated_event(payload: Dict[str, Any], user_profile: UserProfile) -> str:
+    return "{author} updated their comment on issue: *\"{title}\"\
+*\n``` quote\n{comment}\n```\n".format(
+        author = payload["comment"]["author"]["displayName"],
+        title = payload["issue"]["fields"]["summary"],
+        comment = normalize_comment(payload["comment"]["body"])
+    )
+
+def handle_comment_deleted_event(payload: Dict[str, Any], user_profile: UserProfile) -> str:
+    return "{author} deleted their comment on issue: *\"{title}\"\
+*\n``` quote\n~~{comment}~~\n```\n".format(
+        author = payload["comment"]["author"]["displayName"],
+        title = payload["issue"]["fields"]["summary"],
+        comment = normalize_comment(payload["comment"]["body"])
+    )
+
 JIRA_CONTENT_FUNCTION_MAPPER = {
     "jira:issue_created": handle_created_issue_event,
     "jira:issue_deleted": handle_deleted_issue_event,
     "jira:issue_updated": handle_updated_issue_event,
+    "comment_created": handle_comment_created_event,
+    "comment_updated": handle_comment_updated_event,
+    "comment_deleted": handle_comment_deleted_event,
 }
 
 def get_event_handler(event: Optional[str]) -> Optional[Callable[..., str]]:
@@ -278,7 +304,7 @@ def api_jira_webhook(request: HttpRequest, user_profile: UserProfile,
 
     content_func = get_event_handler(event)
 
-    if subject is None or content_func is None:
+    if content_func is None:
         raise UnexpectedWebhookEventType('Jira', event)
 
     content = content_func(payload, user_profile)  # type: str

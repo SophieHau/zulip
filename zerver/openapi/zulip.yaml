@@ -19,7 +19,8 @@ info:
     url: https://www.apache.org/licenses/LICENSE-2.0.html
 servers:
 - url: 'https://your.zulip.server/api/v1'
-
+security:
+  - basicAuth: []
 #######################
 # Endpoint definitions
 #######################
@@ -38,6 +39,7 @@ paths:
           type: string
         example: iago@zulip.com
         required: true
+      security: []
       responses:
         '200':
           description: Success.
@@ -78,8 +80,6 @@ paths:
           type: boolean
           default: false
         example: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -114,7 +114,7 @@ paths:
                                     "sender_id": 13215,
                                     "sender_realm_str": "example",
                                     "sender_short_name": "othello-bot",
-                                    "subject": "Castle",
+                                    "topic": "Castle",
                                     "subject_links": [],
                                     "timestamp": 1375978403,
                                     "type": "stream"
@@ -171,8 +171,6 @@ paths:
           type: string
         example: 1375801870:2942
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -197,8 +195,6 @@ paths:
           type: string
         example: Denmark
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -234,8 +230,6 @@ paths:
     post:
       description: Mark all the user's unread messages as read. This is often
         called "bankruptcy" in Zulip.
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -255,8 +249,6 @@ paths:
           type: integer
         example: 42
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -283,8 +275,6 @@ paths:
           type: string
         example: new coffee machine
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -334,7 +324,7 @@ paths:
           items:
             type: object
           default: []
-        example: [{"operator": "sender", "operand"}]
+        example: [{"operand": "Denmark", "operator": "stream"}]
       - name: client_gravatar
         in: query
         description: Whether the client supports computing gravatars URLs.  If enabled,
@@ -355,8 +345,6 @@ paths:
           type: boolean
           default: true
         example: false
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -515,8 +503,6 @@ paths:
           type: string
         example: Hello
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -565,8 +551,6 @@ paths:
           type: integer
         example: 42
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -601,7 +585,7 @@ paths:
           type: integer
         example: 42
         required: true
-      - name: subject
+      - name: topic
         in: query
         description: The topic of the message. Only required for stream
           messages. Maximum length of 60 characters.
@@ -629,8 +613,6 @@ paths:
         schema:
           type: string
         example: Hello
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -669,8 +651,6 @@ paths:
           type: integer
         example: 42
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -708,8 +688,6 @@ paths:
           type: integer
         example: 42
         required: true
-      security:
-        - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -787,8 +765,6 @@ paths:
           type: string
         example: read
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -823,8 +799,128 @@ paths:
           type: string
         example: '**foo**'
         required: true
-      security:
-      - basicAuth: []
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/JsonSuccess'
+                - properties:
+                    rendered:
+                      type: string
+                      description: The rendered HTML.
+                - example:
+                    {
+                        "msg": "",
+                        "rendered": "<p><strong>foo</strong></p>",
+                        "result": "success"
+                    }
+  /messages/{message_id}/reactions:
+    post:
+      description: Add an emoji reaction to a message.
+      parameters:
+      - name: message_id
+        in: path
+        description: The ID of the message that you want to add an emoji reaction to.
+        schema:
+          type: integer
+        example: 42
+        required: true
+      - name: emoji_name
+        in: query
+        description: |
+                     Name of the emoji you want to add as as a reaction.
+
+                     To find an emoji's name, hover over a message to
+                     reveal three icons on the right, then click the smiley face icon.
+                     Images of available reaction emojis appear. Hover over the emoji
+                     you want, and note that emoji's text name.
+        schema:
+          type: string
+        example: '**:slight smile:**'
+        required: true
+      - name: emoji_code
+        in: query
+        description: |
+                     An encoded version of the unicode codepoint. Used only
+                     in rare corner cases to consolidate identical reactions
+                     to the same emoji name.
+        schema:
+          type: string
+        example: '**foo**'
+        required: false
+      - name: reaction_type
+        in: query
+        description: |
+                     If you are reacting with a [custom emoji](/help/add-custom-emoji),
+                     set `reaction_type` to `realm_emoji`.
+        schema:
+          type: string
+        example: '**realm_emoji**'
+        required: false
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/JsonSuccess'
+                - properties:
+                    rendered:
+                      type: string
+                      description: The rendered HTML.
+                - example:
+                    {
+                        "msg": "",
+                        "rendered": "<p><strong>foo</strong></p>",
+                        "result": "success"
+                    }
+    delete:
+      description: Delete an emoji reaction from a message.
+      parameters:
+      - name: message_id
+        in: path
+        description: The ID of the message from which you want to delete the emoji reaction.
+        schema:
+          type: integer
+        example: 42
+        required: true
+      - name: emoji_name
+        in: query
+        description: |
+                     Name of the emoji you want to delete from a reaction.
+
+                     To find an emoji's name, hover over a message to
+                     reveal three icons on the right, then click the smiley face icon.
+                     Images of available reaction emojis appear. Hover over the emoji
+                     you want, and note that emoji's text name.
+        schema:
+          type: string
+        example: '**:slight smile:**'
+        required: true
+      - name: emoji_code
+        in: query
+        description: |
+                     An encoded version of the unicode codepoint for the emoji.
+                     Should be passed when adding a vote to an existing emoji reaction,
+                     or order to handle unlikely corner cases where the emoji name to
+                     codepoint mapping has changed since the first reaction was added.
+        schema:
+          type: string
+        example: '**foo**'
+        required: false
+      - name: reaction_type
+        in: query
+        description: |
+                     If you are reacting with a [custom emoji](/help/add-custom-emoji),
+                     set `reaction_type` to `realm_emoji`.
+        schema:
+          type: string
+        example: '**realm_emoji**'
+        required: false
       responses:
         '200':
           description: Success.
@@ -854,8 +950,7 @@ paths:
                 filename:
                   type: string
                   format: binary
-      security:
-      - basicAuth: []
+                  example: /path/to/file
       responses:
         '200':
           description: Success.
@@ -886,8 +981,14 @@ paths:
           type: boolean
           default: false
         example: true
-      security:
-      - basicAuth: []
+      - name: include_custom_profile_fields
+        in: query
+        description: Set to `true` if the client wants custom profile field
+          data to be included in the response.
+        schema:
+          type: boolean
+          default: false
+        example: true
       responses:
         '200':
           description: Success.
@@ -904,46 +1005,80 @@ paths:
                         avatar, user type...).
                 - example:
                     {
-                        "members": [
-                            {
-                                "avatar_url": "https://secure.gravatar.com/avatar/818c212b9f8830dfef491b3f7da99a14?d=identicon&version=1",
-                                "bot_type": null,
-                                "email": "AARON@zulip.com",
-                                "full_name": "aaron",
-                                "is_active": true,
-                                "is_admin": false,
-                                "is_bot": false,
-                                "is_guest": false,
-                                "user_id": 1,
-                                "timezone" : "Africa/Bujumbura"
-                            },
-                            {
-                                "avatar_url": "https://secure.gravatar.com/avatar/77c3871a68c8d70356156029fd0a4999?d=identicon&version=1",
-                                "bot_type": null,
-                                "email": "cordelia@zulip.com",
-                                "full_name": "Cordelia Lear",
-                                "is_active": true,
-                                "is_admin": false,
-                                "is_bot": false,
-                                "is_guest": false,
-                                "user_id": 3,
-                                "timezone" : "Asia/Calcutta"
-                            },
-                            {
-                                "avatar_url": "https://secure.gravatar.com/avatar/0cbf08f3a355995fa2ec542246e35123?d=identicon&version=1",
-                                "bot_type": null,
-                                "email": "newbie@zulip.com",
-                                "full_name": "New User",
-                                "is_active": true,
-                                "is_admin": false,
-                                "is_bot": false,
-                                "is_guest": true,
-                                "user_id": 24,
-                                "timezone" : "Asia/Calcutta"
-                            }
-                        ],
-                        "msg": "",
-                        "result": "success"
+                       "msg": "",
+                       "result": "success",
+                       "members": [
+                          {
+                             "is_active": true,
+                             "email": "AARON@zulip.com",
+                             "is_admin": false,
+                             "avatar_url": "https://secure.gravatar.com/avatar/818c212b9f8830dfef491b3f7da99a14?d=identicon&version=1",
+                             "bot_type": null,
+                             "timezone": "",
+                             "is_bot": false,
+                             "user_id": 7,
+                             "profile_data": {},
+                             "is_guest": false,
+                             "date_joined": "2019-10-20T07:50:53.728864+00:00",
+                             "full_name": "aaron"
+                          },
+                          {
+                             "date_joined": "2019-10-20T07:50:53.729659+00:00",
+                             "full_name": "King Hamlet",
+                             "is_guest": false,
+                             "profile_data": {
+                                "4": {
+                                   "value": "vim"
+                                },
+                                "2": {
+                                   "value": "I am:\n* The prince of Denmark\n* Nephew to the usurping Claudius",
+                                   "rendered_value": "<p>I am:</p>\n<ul>\n<li>The prince of Denmark</li>\n<li>Nephew to the usurping Claudius</li>\n</ul>"
+                                },
+                                "5": {
+                                   "value": "1900-1-1"
+                                },
+                                "7": {
+                                   "value": "[11]"
+                                },
+                                "6": {
+                                   "value": "https://blog.zulig.org"
+                                },
+                                "1": {
+                                   "value": "+0-11-23-456-7890",
+                                   "rendered_value": "<p>+0-11-23-456-7890</p>"
+                                },
+                                "8": {
+                                   "value": "zulipbot"
+                                },
+                                "3": {
+                                   "rendered_value": "<p>Dark chocolate</p>",
+                                   "value": "Dark chocolate"
+                                }
+                             },
+                             "user_id": 10,
+                             "is_bot": false,
+                             "bot_type": null,
+                             "timezone": "",
+                             "is_admin": false,
+                             "avatar_url": "https://secure.gravatar.com/avatar/6d8cad0fd00256e7b40691d27ddfd466?d=identicon&version=1",
+                             "is_active": true,
+                             "email": "hamlet@zulip.com"
+                          },
+                          {
+                             "bot_owner_id": 11,
+                             "is_guest": false,
+                             "date_joined": "2019-10-20T12:52:17.862053+00:00",
+                             "full_name": "Iago's Bot",
+                             "email": "iago-bot@zulipdev.com",
+                             "is_active": true,
+                             "avatar_url": "https://secure.gravatar.com/avatar/7328586831cdbb1627649bd857b1ee8c?d=identicon&version=1",
+                             "is_admin": false,
+                             "user_id": 23,
+                             "bot_type": 1,
+                             "timezone": "",
+                             "is_bot": true
+                          }
+                       ]
                     }
     post:
       description: Create a new user in a realm.
@@ -953,31 +1088,29 @@ paths:
         description: The email address of the new user.
         schema:
           type: string
-        example: newbie@zulip.com
+        example: username@example.com
         required: true
       - name: password
         in: query
         description: The password of the new user.
         schema:
           type: string
-        example: abdec@7982
+        example: abcd1234
         required: true
       - name: full_name
         in: query
         description: The full name of the new user.
         schema:
           type: string
-        example: John Smith
+        example: New User
         required: true
       - name: short_name
         in: query
-        description: The short name of the new user.
+        description: The short name of the new user.  Not user-visible.
         schema:
           type: string
-        example: jsmith
+        example: newuser
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -1009,8 +1142,6 @@ paths:
           type: string
         example: iago@zulip.com
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -1030,23 +1161,148 @@ paths:
                             "website": {
                                 "timestamp": 1532697622,
                                 "status": "active",
-                                "pushable": false,
-                                "client": "website"
                             },
                             "ZulipMobile": {
                                 "timestamp": 1522687421,
                                 "status": "active",
-                                "pushable": false,
-                                "client": "ZulipMobile"
                             },
                             "aggregated": {
                                 "timestamp": 1532697622,
                                 "status": "active",
-                                "client": "website"
                             }
                         },
                         "result": "success",
                         "msg": ""
+                    }
+  /users/me:
+    get:
+      description: Get the requesting user's profile data from the backend.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/JsonSuccess'
+                - properties:
+                    avatar_url:
+                      type: string
+                      description: "URL for the user's avatar"
+                      example: "x"
+                    client_id:
+                      type: string
+                      description: NA
+                      example: "74c768b081076fdb3c4326256c17467e"
+                    email:
+                      type: string
+                      description: Email of the requesting user.
+                      example: "iago@zulip.com"
+                    full_name:
+                      type: string
+                      description: Full name of the requesting user.
+                      example: "Iago"
+                    is_admin:
+                      type: boolean
+                      description: A boolean indicating if the requesting user is an admin.
+                      example: true
+                    is_bot:
+                      type: boolean
+                      description: A boolean indicating if the requesting user is a bot.
+                      example: false
+                    max_message_id:
+                      type: integer
+                      description: NA.
+                      example: 30
+                    pointer:
+                      type: integer
+                      description: NA
+                      example: -1
+                    short_name:
+                      type: string
+                      description: Short name of the requesting user.
+                      example: "iago"
+                    user_id:
+                      type: integer
+                      description: The user's ID.
+                      example: 1
+                    profile_data:
+                      type: object
+                      description: A dictionary containing custom profile field data for the user.
+                        Each entry maps the integer ID of a custom profile field in the organization
+                        to a dictionary containing the user's data for that field.  Generally the
+                        data includes just a single `value` key; for those custom profile fields
+                        supporting markdown, a `rendered_value` key will also be present.
+                - example:
+                    {
+                        "avatar_url": "https://secure.gravatar.com/avatar/af4f06322c177ef4e1e9b2c424986b54?d=identicon&version=1",
+                        "client_id": "74c768b081076fdb3c4326256c17467e",
+                        "email": "iago@zulip.com",
+                        "full_name": "Iago",
+                        "is_admin": true,
+                        "is_bot": false,
+                        "max_message_id": 30,
+                        "msg": "",
+                        "pointer": -1,
+                        "result": "success",
+                        "short_name": "iago",
+                        "user_id": 5,
+                        "profile_data": {
+                            "5": {
+                               "value": "2000-1-1"
+                            },
+                            "4": {
+                               "value": "emacs"
+                            },
+                            "7": {
+                               "value": "[10]"
+                            },
+                            "1": {
+                               "value": "+1-234-567-8901",
+                               "rendered_value": "<p>+1-234-567-8901</p>"
+                            },
+                            "2": {
+                               "rendered_value": "<p>Betrayer of Othello.</p>",
+                               "value": "Betrayer of Othello."
+                            },
+                            "8": {
+                               "value": "zulip"
+                            },
+                            "3": {
+                               "value": "Apples",
+                               "rendered_value": "<p>Apples</p>"
+                            },
+                            "6": {
+                               "value": "https://zulip.readthedocs.io/en/latest/"
+                            }
+                         }
+                    }
+    delete:
+      description: Delete the requesting user from the realm.
+      responses:
+        '200':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/JsonSuccess'
+                - example:
+                    {
+                      "msg": "",
+                      "result": "success",
+                    }
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/JsonError'
+                - example:
+                    {
+                        "msg": "Cannot deactivate the only organization administrator",
+                        "result": "error"
                     }
   /users/me/{stream_id}/topics:
     get:
@@ -1059,8 +1315,6 @@ paths:
           type: integer
         example: 42
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -1117,8 +1371,16 @@ paths:
   /users/me/subscriptions:
     get:
       description: Get information on every stream the user is subscribed to.
-      security:
-      - basicAuth: []
+      parameters:
+      - name: include_subscribers
+        in: query
+        description: Set to `true` if you would like each stream's info to include a
+          list of current subscribers to that stream. (This may be significantly slower
+          in organizations with thousands of users.)
+        schema:
+          type: boolean
+          default: false
+        example: true
       responses:
         '200':
           description: Success.
@@ -1183,9 +1445,13 @@ paths:
       parameters:
       - name: subscriptions
         in: query
-        description: "A list of dictionaries, where each dictionary contains
-          key/value pairs specifying a particular stream to subscribe to.
-          You can specify an initial description here when creating a new stream.
+        description: "A list of dictionaries containing the the key `name`
+          and value specifying the name of the stream to subscribe. If the
+          stream does not exist a new stream is created. The description of the
+          stream created can be specified by setting the dictionary key
+          `description` with an appropriate value.
+
+
           **Note**: This argument is called `streams` and not `subscriptions`
           in our Python API."
         schema:
@@ -1201,15 +1467,6 @@ paths:
         schema:
           type: boolean
           default: false
-        example: true
-      - name: announce
-        in: query
-        description: If `announce` is `True` and one of the streams specified
-          in `subscriptions` has to be created (i.e. doesn't exist to begin
-          with), an announcement will be made notifying that a new stream was
-          created.
-        schema:
-          type: boolean
         example: true
       - name: principals
         in: query
@@ -1259,8 +1516,6 @@ paths:
         schema:
           type: boolean
         example: true
-      security:
-      - basicAuth: []
       responses:
         '200_without_principals':
           description: Success.
@@ -1348,10 +1603,13 @@ paths:
             type: array
             items:
               type: object
-              items:
-                name: string
-                color: string
-                description: string
+              properties:
+                name:
+                  type: string
+                color:
+                  type: string
+                description:
+                  type: string
           example:
             [
               {
@@ -1364,6 +1622,49 @@ paths:
               }
             ]
           required: false
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/JsonSuccess'
+                - properties:
+                    subscribed:
+                      type: object
+                      description: A dictionary where the key is the email address of
+                        the user/bot and the value is a list of the names of the streams
+                        that were subscribed to as a result of the query.
+                    already_subscribed:
+                      type: object
+                      description: A dictionary where the key is the email address of
+                        the user/bot and the value is a list of the names of the streams
+                        that the user/bot is already subscribed to.
+                    not_removed:
+                      type: array
+                      items:
+                        type: string
+                      description: A list of the names of streams that the
+                        user is already unsubscribed from, and hence doesn't
+                        need to be unsubscribed.
+                    removed:
+                      type: array
+                      items:
+                        type: string
+                      description: A list of the names of streams which were
+                        unsubscribed from as a result of the query.
+                - example:
+                    {
+                        "msg": "",
+                        "subscribed": {},
+                        "already_subscribed": {"iago@zulip.com":["Verona"]},
+                        "not_removed": [],
+                        "removed": [
+                            "new stream"
+                        ],
+                        "result": "success"
+                    }
     delete:
       description: Unsubscribe yourself or other users from one or more
         streams.
@@ -1390,8 +1691,6 @@ paths:
             type: string
           default:
         example: ['ZOE@zulip.com']
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -1401,7 +1700,7 @@ paths:
                 allOf:
                 - $ref: '#/components/schemas/JsonSuccess'
                 - properties:
-                    not_subscribed:
+                    not_removed:
                       type: array
                       items:
                         type: string
@@ -1417,7 +1716,7 @@ paths:
                 - example:
                     {
                         "msg": "",
-                        "not_subscribed": [],
+                        "not_removed": [],
                         "removed": [
                             "new stream"
                         ],
@@ -1435,12 +1734,19 @@ paths:
         to.
       parameters:
       - name: stream
-        in: query_function
+        in: query
         description: The name of the stream in which to mute the topic.
         schema:
           type: string
         example: Verona
-        required: true
+        required: false
+      - name: stream_id
+        in: query
+        description: The id of the stream in which to mute the topic.
+        schema:
+          type: integer
+        example: 3
+        required: false
       - name: topic
         in: query
         description: The topic to (un)mute. Note that the request will succeed
@@ -1461,8 +1767,6 @@ paths:
           - remove
         example: add
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -1499,6 +1803,7 @@ paths:
       description: Upload a single emoji file.
       parameters:
       - name: emoji_name
+        required: true
         in: path
         description: The name that should be associated with the uploaded
           emoji image/gif.
@@ -1512,8 +1817,7 @@ paths:
                 filename:
                   type: string
                   format: binary
-      security:
-      - basicAuth: []
+                  example: /path/to/img.png
       responses:
         '200':
           description: Success.
@@ -1526,8 +1830,6 @@ paths:
   /realm/emoji:
     get:
       description: Get all the custom emoji in the user's realm.
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -1575,10 +1877,8 @@ paths:
           type: array
           items:
             type: object
-        example: [{"stream_id": 1, "property": "pin_to_top", "value": true}]
+        example: [{"stream_id": 1, "property": "pin_to_top", "value": true}, {"stream_id": 3, "property": "color", "value": '#f00f00'}]
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -1614,8 +1914,6 @@ paths:
   /realm/filters:
     get:
       description: Fetch all the filters set up for the user's organization.
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -1630,10 +1928,9 @@ paths:
                       items:
                         type: array
                         items:
-                          type:
-                            anyOf:
-                            - string
-                            - integer
+                          oneOf:
+                            - type: string
+                            - type: integer
                       description: An array of tuples, each representing one of the
                         linkifiers set up in the organization. Each of these tuples contain the
                         pattern, the formatted URL and the filter's ID, in that order. See
@@ -1673,8 +1970,6 @@ paths:
           type: string
         example: https://github.com/zulip/zulip/issues/%(id)s
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -1704,8 +1999,6 @@ paths:
           type: integer
         example: 42
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -1752,7 +2045,9 @@ paths:
           messages, so one specifies: `event_types=['message']`"
         schema:
           type: array
-        example: event_types=['message']
+          items:
+            type: string
+        example: ['message']
       - name: all_public_streams
         in: query
         description: Set to `True` if you would like to receive events that
@@ -1777,7 +2072,9 @@ paths:
           `event_types` is not provided, this argument defaults to `None`.
         schema:
           type: array
-        example: event_types=['message']
+          items:
+            type: string
+        example: ['message']
       - name: narrow
         in: query
         description: A JSON-encoded array of length 2 indicating the narrow
@@ -1787,10 +2084,12 @@ paths:
           `narrow=['is', 'private']` for private messages.
         schema:
           type: array
+          items:
+            anyOf:
+            - type: string
+            - type: integer
           default: narrow=[]
-        example: narrow=['stream', 'Denmark']
-      security:
-      - basicAuth: []
+        example: ['stream', 'Denmark']
       responses:
         '200':
           description: Success.
@@ -1831,8 +2130,6 @@ paths:
   /server_settings:
     get:
       description: Fetch global settings for the Zulip server.
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -1847,6 +2144,12 @@ paths:
                       description: Each key-value pair in the object indicates
                         whether the authentication method is enabled on this
                         server.
+                    external_authentication_methods:
+                      type: array
+                      description: List of dictionaries describing which
+                        external authentication methods are enabled and their
+                        parameters - most importantly the login url, display_name
+                        and display_icon.
                     zulip_version:
                       type: string
                       description: The version of Zulip running in the server.
@@ -1879,14 +2182,6 @@ paths:
                       type: string
                       description: The URI of the organization's mobile icon (usually
                         a square version of the logo).
-                    realm_logo:
-                      type: string
-                      description: The URI of the organization's top-left navbar logo
-                        (usually a wide rectangular version of the logo).
-                    realm_night_logo:
-                      type: string
-                      description: The URI of the organization's top-left navbar logo in night_mode
-                        (usually a wide rectangular version of the logo).
                     realm_description:
                       type: string
                       description: HTML description of the organization, as
@@ -1894,27 +2189,51 @@ paths:
                         [organization profile](/help/create-your-organization-profile).
                 - example:
                     {
-                        "realm_uri": "http://localhost:9991",
+                        "authentication_methods": {
+                          "password": true,
+                          "dev": true,
+                          "email": true,
+                          "ldap": false,
+                          "remoteuser": false,
+                          "github": true,
+                          "azuread": false,
+                          "google": true,
+                          "saml": true
+                        },
+                        "zulip_version": "2.0.6+git",
                         "push_notifications_enabled": false,
                         "msg": "",
-                        "realm_icon": "https://secure.gravatar.com/avatar/62429d594b6ffc712f54aee976a18b44?d=identicon",
-                        "realm_logo": "/static/images/logo/zulip-org-logo.png",
-                        "realm_night_logo": "static/images/logo/zulip-org-logo.png",
-                        "realm_description": "<p>The Zulip development environment default organization.  It's great for testing!</p>",
+                        "is_incompatible": false,
                         "email_auth_enabled": true,
-                        "zulip_version": "1.9.0-rc1+git",
+                        "require_email_format_usernames": true,
+                        "realm_uri": "http://localhost:9991",
                         "realm_name": "Zulip Dev",
-                        "authentication_methods": {
-                            "github": true,
-                            "ldap": false,
-                            "password": true,
-                            "remoteuser": false,
-                            "email": true,
-                            "google": true,
-                            "dev": true
-                        },
+                        "realm_icon": "https://secure.gravatar.com/avatar/62429d594b6ffc712f54aee976a18b44?d=identicon",
+                        "realm_description": "<p>The Zulip development environment default organization.  It's great for testing!</p>",
                         "result": "success",
-                        "require_email_format_usernames": true
+                        "external_authentication_methods": [
+                          {
+                            "name": "saml:idp_name",
+                            "display_name": "SAML",
+                            "display_icon": null,
+                            "login_url": "/accounts/login/social/saml/idp_name",
+                            "signup_url": "/accounts/register/social/saml/idp_name"
+                          },
+                          {
+                            "name": "google",
+                            "display_name": "Google",
+                            "display_icon": "/static/images/landing-page/logos/googl_e-icon.png",
+                            "login_url": "/accounts/login/social/google",
+                            "signup_url": "/accounts/register/social/google"
+                          },
+                          {
+                            "name": "github",
+                            "display_name": "GitHub",
+                            "display_icon": "/static/images/landing-page/logos/github-icon.png",
+                            "login_url": "/accounts/login/social/github",
+                            "signup_url": "/accounts/register/social/github"
+                          }
+                        ]
                     }
   /settings/notifications:
     patch:
@@ -1944,6 +2263,13 @@ paths:
         schema:
           type: boolean
         example: true
+      - name: notification_sound
+        in: query
+        description: Notification sound name.
+        schema:
+          type: string
+          format: json
+        example: ding
       - name: enable_desktop_notifications
         in: query
         description: Enable visual desktop notifications for private messages
@@ -1985,6 +2311,12 @@ paths:
         schema:
           type: boolean
         example: true
+      - name: enable_login_emails
+        in: query
+        description: Enable email notifications for new logins to account.
+        schema:
+          type: boolean
+        example: true
       - name: message_content_in_email_notifications
         in: query
         description: Include the message's content in missed messages email
@@ -1992,8 +2324,39 @@ paths:
         schema:
           type: boolean
         example: true
-      security:
-      - basicAuth: []
+      - name: pm_content_in_desktop_notifications
+        in: query
+        description: Include content of private messages in desktop notifications.
+        schema:
+          type: boolean
+        example: true
+      - name: wildcard_mentions_notify
+        in: query
+        description: Whether wildcard mentions (E.g. @**all**) should send notifications like a personal mention.
+        schema:
+          type: boolean
+        example: true
+      - name: desktop_icon_count_display
+        in: query
+        description: >
+          Unread count summary (appears in desktop sidebar and browser tab)
+
+           * 1 - All unreads
+           * 2 - Private messages and mentions
+           * 3 - None
+        schema:
+          type: integer
+          enum:
+            - 1
+            - 2
+            - 3
+        example: 1
+      - name: realm_name_in_notifications
+        in: query
+        description: Include organization name in subject of missed message emails.
+        schema:
+          type: boolean
+        example: true
       responses:
         '200':
           description: Success.
@@ -2099,8 +2462,6 @@ paths:
           type: boolean
           default: false
         example: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -2184,8 +2545,6 @@ paths:
           type: integer
         example: 42
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -2227,6 +2586,7 @@ paths:
         description: The new description for the stream.
         schema:
           type: string
+          format: json
         example: "This stream is related to football dicsussions."
         required: false
       - name: new_name
@@ -2234,6 +2594,7 @@ paths:
         description: The new name for the stream.
         schema:
           type: string
+          format: json
         example: "Italy"
         required: false
       - name: is_private
@@ -2258,8 +2619,6 @@ paths:
         example: true
         required: false
 
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -2313,8 +2672,6 @@ paths:
             type: string
         example: ["iago@zulip.com", "polonius@zulip.com"]
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -2346,10 +2703,10 @@ paths:
         description: An array containing the user IDs of the initial members for the new user group.
         schema:
           type: array
+          items:
+            type: integer
         example: [1, 2, 3, 4]
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -2392,7 +2749,7 @@ paths:
         description: The new name of the group.
         schema:
           type: string
-        example: marketing
+        example: marketing team
         required: true
       - name: description
         in: query
@@ -2401,8 +2758,6 @@ paths:
           type: string
         example: The marketing team.
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -2440,8 +2795,6 @@ paths:
           type: integer
         example: 42
         required: true
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.
@@ -2473,8 +2826,6 @@ paths:
   /user_groups:
     get:
       description: Get all user groups of the realm.
-      security:
-      - basicAuth: []
       responses:
         '200':
           description: Success.

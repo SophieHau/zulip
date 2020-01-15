@@ -187,7 +187,13 @@ def transform_url(protocol, path, query, target_port, target_host):
 def fetch_request(url, callback, **kwargs):
     # type: (str, Any, **Any) -> Generator[Callable[..., Any], Any, None]
     # use large timeouts to handle polling requests
-    req = httpclient.HTTPRequest(url, connect_timeout=240.0, request_timeout=240.0, **kwargs)
+    req = httpclient.HTTPRequest(
+        url,
+        connect_timeout=240.0,
+        request_timeout=240.0,
+        decompress_response=False,
+        **kwargs
+    )
     client = httpclient.AsyncHTTPClient()
     # wait for response
     response = yield gen.Task(client.fetch, req)
@@ -302,12 +308,9 @@ class CombineHandler(BaseWebsocketHandler):
             self._headers = httputil.HTTPHeaders()  # clear tornado default header
 
             for header, v in response.headers.get_all():
-                if header != 'Content-Length':
-                    # some header appear multiple times, eg 'Set-Cookie'
-                    self.add_header(header, v)
+                # some header appear multiple times, eg 'Set-Cookie'
+                self.add_header(header, v)
             if response.body:
-                # rewrite Content-Length Header by the response
-                self.set_header('Content-Length', len(response.body))
                 self.write(response.body)
         self.finish()
 
@@ -316,6 +319,8 @@ class CombineHandler(BaseWebsocketHandler):
         # type: () -> None
         if 'X-REAL-IP' not in self.request.headers:
             self.request.headers['X-REAL-IP'] = self.request.remote_ip
+        if 'X-FORWARDED_PORT' not in self.request.headers:
+            self.request.headers['X-FORWARDED-PORT'] = str(proxy_port)
         if self.request.headers.get("Upgrade", "").lower() == 'websocket':
             return super().prepare()
         url = transform_url(

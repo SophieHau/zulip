@@ -3,7 +3,7 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.utils.translation import ugettext as _
 from django.core.exceptions import ValidationError
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_safe
 
 from zerver.decorator import require_realm_admin, to_non_negative_int, to_not_negative_int_or_none
 from zerver.lib.actions import (
@@ -19,7 +19,7 @@ from zerver.lib.actions import (
 from zerver.lib.i18n import get_available_language_codes
 from zerver.lib.request import has_request_variables, REQ, JsonableError
 from zerver.lib.response import json_success, json_error
-from zerver.lib.validator import check_string, check_dict, check_bool, check_int
+from zerver.lib.validator import check_string, check_dict, check_bool, check_int, check_int_in
 from zerver.lib.streams import access_stream_by_id
 from zerver.lib.domains import validate_domain
 from zerver.lib.video_calls import request_zoom_video_call_url
@@ -58,19 +58,27 @@ def update_realm(
         message_retention_days: Optional[int]=REQ(converter=to_not_negative_int_or_none, default=None),
         send_welcome_emails: Optional[bool]=REQ(validator=check_bool, default=None),
         digest_emails_enabled: Optional[bool]=REQ(validator=check_bool, default=None),
-        message_content_allowed_in_email_notifications:
-        Optional[bool]=REQ(validator=check_bool, default=None),
-        bot_creation_policy: Optional[int]=REQ(converter=to_not_negative_int_or_none, default=None),
-        create_stream_policy: Optional[int]=REQ(validator=check_int, default=None),
-        invite_to_stream_policy: Optional[int]=REQ(validator=check_int, default=None),
-        email_address_visibility: Optional[int]=REQ(converter=to_not_negative_int_or_none, default=None),
+        message_content_allowed_in_email_notifications: Optional[bool]=REQ(
+            validator=check_bool, default=None),
+        bot_creation_policy: Optional[int]=REQ(validator=check_int_in(
+            Realm.BOT_CREATION_POLICY_TYPES), default=None),
+        create_stream_policy: Optional[int]=REQ(validator=check_int_in(
+            Realm.CREATE_STREAM_POLICY_TYPES), default=None),
+        invite_to_stream_policy: Optional[int]=REQ(validator=check_int_in(
+            Realm.INVITE_TO_STREAM_POLICY_TYPES), default=None),
+        user_group_edit_policy: Optional[int]=REQ(validator=check_int_in(
+            Realm.USER_GROUP_EDIT_POLICY_TYPES), default=None),
+        private_message_policy: Optional[int]=REQ(validator=check_int_in(
+            Realm.PRIVATE_MESSAGE_POLICY_TYPES), default=None),
+        email_address_visibility: Optional[int]=REQ(validator=check_int_in(
+            Realm.EMAIL_ADDRESS_VISIBILITY_TYPES), default=None),
         default_twenty_four_hour_time: Optional[bool]=REQ(validator=check_bool, default=None),
         video_chat_provider: Optional[int]=REQ(validator=check_int, default=None),
         google_hangouts_domain: Optional[str]=REQ(validator=check_string, default=None),
         zoom_user_id: Optional[str]=REQ(validator=check_string, default=None),
         zoom_api_key: Optional[str]=REQ(validator=check_string, default=None),
         zoom_api_secret: Optional[str]=REQ(validator=check_string, default=None),
-        digest_weekday: Optional[int]=REQ(validator=check_int, default=None),
+        digest_weekday: Optional[int]=REQ(validator=check_int_in(Realm.DIGEST_WEEKDAY_VALUES), default=None),
 ) -> HttpResponse:
     realm = user_profile.realm
 
@@ -86,7 +94,7 @@ def update_realm(
         return json_error(_("At least one authentication method must be enabled."))
     if (video_chat_provider is not None and
             video_chat_provider not in set(p['id'] for p in Realm.VIDEO_CHAT_PROVIDERS.values())):
-        return json_error(_("Invalid video chat provider {}").format(video_chat_provider))
+        return json_error(_("Invalid video_chat_provider {}").format(video_chat_provider))
     if video_chat_provider == Realm.VIDEO_CHAT_PROVIDERS['google_hangouts']['id']:
         try:
             validate_domain(google_hangouts_domain)
@@ -115,13 +123,6 @@ def update_realm(
                 not request_zoom_video_call_url(zoom_user_id, zoom_api_key, zoom_api_secret)):
             return json_error(_('Invalid credentials for the %(third_party_service)s API.') % dict(
                 third_party_service="Zoom"))
-
-    # Additional validation of enum-style values
-    if bot_creation_policy is not None and bot_creation_policy not in Realm.BOT_CREATION_POLICY_TYPES:
-        return json_error(_("Invalid bot creation policy"))
-    if email_address_visibility is not None and \
-            email_address_visibility not in Realm.EMAIL_ADDRESS_VISIBILITY_TYPES:
-        return json_error(_("Invalid email address visibility policy"))
 
     # The user of `locals()` here is a bit of a code smell, but it's
     # restricted to the elements present in realm.property_types.
@@ -204,7 +205,7 @@ def deactivate_realm(request: HttpRequest, user: UserProfile) -> HttpResponse:
     do_deactivate_realm(realm, user)
     return json_success()
 
-@require_GET
+@require_safe
 def check_subdomain_available(request: HttpRequest, subdomain: str) -> HttpResponse:
     try:
         check_subdomain(subdomain)

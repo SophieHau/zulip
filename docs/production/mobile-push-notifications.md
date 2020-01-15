@@ -21,7 +21,7 @@ follows:
 1. Uncomment the `PUSH_NOTIFICATION_BOUNCER_URL =
    'https://push.zulipchat.com'` line in your `/etc/zulip/settings.py`
    file (i.e. remove the `#` at the start of the line), and
-   [restart your Zulip server](../production/maintain-secure-upgrade.html#updating-settings).
+   [restart your Zulip server](../production/settings.html#making-changes).
    If you installed your Zulip server with a version older than 1.6,
    you'll need to add the line (it won't be there to uncomment).
 
@@ -228,6 +228,8 @@ push notifications through the new app is quite straightforward:
   from Apple's developer console.  Set `APNS_SANDBOX=False` and
   `APNS_CERT_FILE` to be the path of your APNS certificate file in
   `/etc/zulip/settings.py`.
+* Set the `APNS_TOPIC` and `ZULIP_IOS_APP_ID` settings to the ID for
+  your app (for the official Zulip apps, they are both `org.zulip.Zulip`).
 * Restart the Zulip server.
 
 [apple-docs]: https://developer.apple.com/library/content/documentation/NetworkingInternet/Conceptual/RemoteNotificationsPG/APNSOverview.html

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import datetime
+import functools
 import hashlib
 import logging
 import os
@@ -16,9 +17,7 @@ import json
 import uuid
 import configparser
 
-if False:
-    # See https://zulip.readthedocs.io/en/latest/testing/mypy.html#mypy-in-production-scripts
-    from typing import Sequence, Set, Any, Dict, List
+from typing import Sequence, Set, Any, Dict, List
 
 DEPLOYMENTS_DIR = "/home/zulip/deployments"
 LOCK_DIR = os.path.join(DEPLOYMENTS_DIR, "lock")
@@ -45,7 +44,7 @@ def overwrite_symlink(src, dst):
     while True:
         tmp = tempfile.mktemp(
             prefix='.' + os.path.basename(dst) + '.',
-            dir=os.path.dirname(dst))
+            dir=os.path.dirname(dst))  # type: ignore # https://github.com/python/typeshed/issues/3449
         try:
             os.symlink(src, tmp)
         except FileExistsError:
@@ -75,6 +74,10 @@ def parse_cache_script_args(description):
         "--verbose", dest="verbose", action="store_true",
         help="If specified then script will print a detailed report "
         "of what is being will deleted/kept back.")
+    parser.add_argument(
+        "--no-print-headings", dest="no_headings", action="store_true",
+        help="If specified then script will not print headings for "
+        "what will be deleted/kept back.")
 
     args = parser.parse_args()
     args.verbose |= args.dry_run    # Always print a detailed report in case of dry run.
@@ -291,7 +294,7 @@ def purge_unused_caches(caches_dir, caches_in_use, cache_type, args):
     caches_to_keep = all_caches - caches_to_purge
 
     may_be_perform_purging(
-        caches_to_purge, caches_to_keep, cache_type, args.dry_run, args.verbose)
+        caches_to_purge, caches_to_keep, cache_type, args.dry_run, args.verbose, args.no_headings)
     if args.verbose:
         print("Done!")
 
@@ -322,11 +325,11 @@ def generate_sha1sum_emoji(zulip_path):
 
     return sha.hexdigest()
 
-def may_be_perform_purging(dirs_to_purge, dirs_to_keep, dir_type, dry_run, verbose):
-    # type: (Set[str], Set[str], str, bool, bool) -> None
+def may_be_perform_purging(dirs_to_purge, dirs_to_keep, dir_type, dry_run, verbose, no_headings):
+    # type: (Set[str], Set[str], str, bool, bool, bool) -> None
     if dry_run:
         print("Performing a dry run...")
-    else:
+    if not no_headings:
         print("Cleaning unused %ss..." % (dir_type,))
 
     for directory in dirs_to_purge:
@@ -339,54 +342,46 @@ def may_be_perform_purging(dirs_to_purge, dirs_to_keep, dir_type, dry_run, verbo
         if verbose:
             print("Keeping used %s: %s" % (dir_type, directory))
 
-def parse_lsb_release():
+@functools.lru_cache(None)
+def parse_os_release():
     # type: () -> Dict[str, str]
+    """
+    Example of the useful subset of the data:
+    {
+     'ID': 'ubuntu',
+     'VERSION_ID': '18.04',
+     'NAME': 'Ubuntu',
+     'VERSION': '18.04.3 LTS (Bionic Beaver)',
+     'PRETTY_NAME': 'Ubuntu 18.04.3 LTS',
+    }
+
+    VERSION_CODENAME (e.g. 'bionic') is nice and human-readable, but
+    we avoid using it, as it is not available on RHEL-based platforms.
+    """
     distro_info = {}  # type: Dict[str, str]
-    if os.path.exists("/etc/redhat-release"):
-        with open('/etc/redhat-release', 'r') as fp:
-            info = fp.read().strip().split(' ')
-        vendor = info[0]
-        if vendor == 'CentOS':
-            # E.g. "CentOS Linux release 7.5.1804 (Core)"
-            codename = vendor.lower() + info[3][0]
-        elif vendor == 'Fedora':
-            # E.g. "Fedora release 29 (Twenty Nine)"
-            codename = vendor.lower() + info[2]
-        elif vendor == 'Red':
-            # E.g. "Red Hat Enterprise Linux Server release 7.6 (Maipo)"
-            vendor = 'RedHat'
-            codename = 'rhel' + info[6][0]  # 7
-        distro_info = dict(
-            DISTRIB_CODENAME=codename,
-            DISTRIB_ID=vendor,
-            DISTRIB_FAMILY='redhat',
-        )
-        return distro_info
-    try:
-        # For performance reasons, we read /etc/lsb-release directly,
-        # rather than using the lsb_release command; this saves ~50ms
-        # in several places in provisioning and the installer
-        with open('/etc/lsb-release', 'r') as fp:
-            data = [line.strip().split('=') for line in fp]
-        for k, v in data:
-            if k not in ['DISTRIB_CODENAME', 'DISTRIB_ID']:
-                # We only return to the caller the values that we get
-                # from lsb_release in the exception code path.
+    with open('/etc/os-release', 'r') as fp:
+        for line in fp:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                # The line may be blank or a comment, see:
+                # https://www.freedesktop.org/software/systemd/man/os-release.html
                 continue
-            distro_info[k] = v
-        distro_info['DISTRIB_FAMILY'] = 'debian'
-    except FileNotFoundError:
-        # Unfortunately, Debian stretch doesn't yet have an
-        # /etc/lsb-release, so we instead fetch the pieces of data
-        # that we use from the `lsb_release` command directly.
-        vendor = subprocess_text_output(["lsb_release", "-is"])
-        codename = subprocess_text_output(["lsb_release", "-cs"])
-        distro_info = dict(
-            DISTRIB_CODENAME=codename,
-            DISTRIB_ID=vendor,
-            DISTRIB_FAMILY='debian',
-        )
+            k, v = line.split('=', 1)
+            [distro_info[k]] = shlex.split(v)
     return distro_info
+
+@functools.lru_cache(None)
+def os_families() -> Set[str]:
+    """
+    Known families:
+    debian (includes: debian, ubuntu)
+    ubuntu (includes: ubuntu)
+    fedora (includes: fedora, rhel, centos)
+    rhel (includes: rhel, centos)
+    centos (includes: centos)
+    """
+    distro_info = parse_os_release()
+    return {distro_info["ID"], *distro_info.get("ID_LIKE", "").split()}
 
 def file_or_package_hash_updated(paths, hash_name, is_force, package_versions=[]):
     # type: (List[str], str, bool, List[str]) -> bool

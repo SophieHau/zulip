@@ -1,23 +1,22 @@
 import re
 from functools import partial
-from typing import Any, Dict, Optional
 from inspect import signature
+from typing import Any, Dict, Optional
 
 from django.http import HttpRequest, HttpResponse
 
 from zerver.decorator import api_key_only_webhook_view
 from zerver.lib.request import REQ, has_request_variables
 from zerver.lib.response import json_success
-from zerver.lib.webhooks.common import check_send_webhook_message, \
-    validate_extract_webhook_http_header, UnexpectedWebhookEventType
+from zerver.lib.webhooks.common import UnexpectedWebhookEventType, \
+    check_send_webhook_message, get_http_headers_from_filename, \
+    validate_extract_webhook_http_header
 from zerver.lib.webhooks.git import CONTENT_MESSAGE_TEMPLATE, \
     TOPIC_WITH_BRANCH_TEMPLATE, TOPIC_WITH_PR_OR_ISSUE_INFO_TEMPLATE, \
     get_commits_comment_action_message, get_issue_event_message, \
     get_pull_request_event_message, get_push_commits_event_message, \
     get_push_tag_event_message, get_setup_webhook_message
 from zerver.models import UserProfile
-from zerver.lib.webhooks.common import \
-    get_http_headers_from_filename
 
 fixture_to_headers = get_http_headers_from_filename("HTTP_X_GITHUB_EVENT")
 
@@ -236,8 +235,10 @@ def get_add_team_body(payload: Dict[str, Any]) -> str:
     )
 
 def get_release_body(payload: Dict[str, Any]) -> str:
-    return u"{} published [the release]({}).".format(
+    return u"{} {} [release for tag {}]({}).".format(
         get_sender_name(payload),
+        payload['action'],
+        payload['release']['tag_name'],
         payload['release']['html_url'],
     )
 
@@ -471,7 +472,7 @@ IGNORED_EVENTS = [
 def api_github_webhook(
         request: HttpRequest, user_profile: UserProfile,
         payload: Dict[str, Any]=REQ(argument_type='body'),
-        branches: str=REQ(default=None),
+        branches: Optional[str]=REQ(default=None),
         user_specified_topic: Optional[str]=REQ("topic", default=None)) -> HttpResponse:
     event = get_event(request, payload, branches)
     if event is not None:
@@ -487,7 +488,7 @@ def api_github_webhook(
         check_send_webhook_message(request, user_profile, subject, body)
     return json_success()
 
-def get_event(request: HttpRequest, payload: Dict[str, Any], branches: str) -> Optional[str]:
+def get_event(request: HttpRequest, payload: Dict[str, Any], branches: Optional[str]) -> Optional[str]:
     event = validate_extract_webhook_http_header(request, 'X_GITHUB_EVENT', 'GitHub')
     if event == 'pull_request':
         action = payload['action']
@@ -502,7 +503,7 @@ def get_event(request: HttpRequest, payload: Dict[str, Any], branches: str) -> O
         # Unsupported pull_request events
         if action in ('labeled', 'unlabeled', 'review_request_removed'):
             return None
-    if event == 'push':
+    elif event == 'push':
         if is_commit_push_event(payload):
             if branches is not None:
                 branch = get_branch_name_from_ref(payload['ref'])

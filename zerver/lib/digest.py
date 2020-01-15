@@ -70,8 +70,8 @@ def enqueue_emails(cutoff: datetime.datetime) -> None:
         for user_profile in user_profiles:
             if inactive_since(user_profile, cutoff):
                 queue_digest_recipient(user_profile, cutoff)
-                logger.info("%s is inactive, queuing for potential digest" % (
-                    user_profile.email,))
+                logger.info("User %s is inactive, queuing for potential digest" % (
+                    user_profile.id,))
 
 def gather_hot_conversations(user_profile: UserProfile, messages: List[Message]) -> List[Dict[str, Any]]:
     # Gather stream conversations of 2 types:
@@ -190,7 +190,7 @@ def handle_digest_email(user_profile_id: int, cutoff: float,
     messages = Message.objects.filter(
         recipient__type=Recipient.STREAM,
         recipient__type_id__in=stream_ids,
-        pub_date__gt=cutoff_date).select_related('recipient', 'sender', 'sending_client')
+        date_sent__gt=cutoff_date).select_related('recipient', 'sender', 'sending_client')
 
     # Gather hot conversations.
     context["hot_conversations"] = gather_hot_conversations(
@@ -202,12 +202,14 @@ def handle_digest_email(user_profile_id: int, cutoff: float,
     context["new_streams"] = new_streams
     context["new_streams_count"] = new_streams_count
 
+    # TODO: Set has_preheader if we want to include a preheader.
+
     if render_to_web:
         return context
 
     # We don't want to send emails containing almost no information.
     if enough_traffic(context["hot_conversations"], new_streams_count):
-        logger.info("Sending digest email for %s" % (user_profile.email,))
+        logger.info("Sending digest email for user %s" % (user_profile.id,))
         # Send now, as a ScheduledEmail
         send_future_email('zerver/emails/digest', user_profile.realm, to_user_ids=[user_profile.id],
                           from_name="Zulip Digest", from_address=FromAddress.NOREPLY, context=context)

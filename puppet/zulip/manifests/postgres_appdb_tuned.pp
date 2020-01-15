@@ -12,9 +12,6 @@ class zulip::postgres_appdb_tuned {
     'redhat' => "systemctl restart postgresql-${zulip::base::postgres_version}",
   }
 
-  $half_memory = $zulip::base::total_memory / 2
-  $half_memory_pages = $half_memory / 4096
-
   $work_mem = $zulip::base::total_memory_mb / 512
   $shared_buffers = $zulip::base::total_memory_mb / 8
   $effective_cache_size = $zulip::base::total_memory_mb * 10 / 32
@@ -28,6 +25,9 @@ class zulip::postgres_appdb_tuned {
   $ssl_cert_file = zulipconf('postgresql', 'ssl_cert_file', undef)
   $ssl_key_file = zulipconf('postgresql', 'ssl_key_file', undef)
   $ssl_ca_file = zulipconf('postgresql', 'ssl_ca_file', undef)
+
+  # Only used in CentOS for now
+  $pg_datadir = "/var/lib/pgsql/${zulip::base::postgres_version}/data"
 
   file { $postgres_conf:
     ensure  => file,

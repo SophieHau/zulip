@@ -1,20 +1,16 @@
-var render_widgets_tictactoe_widget = require('../templates/widgets/tictactoe_widget.hbs');
+const render_widgets_tictactoe_widget = require('../templates/widgets/tictactoe_widget.hbs');
 
-var tictactoe_widget = (function () {
+const tictactoe_data_holder = function () {
+    const self = {};
 
-var exports = {};
-
-var tictactoe_data_holder = function () {
-    var self = {};
-
-    var me = people.my_current_user_id();
-    var square_values = {};
-    var num_filled = 0;
-    var waiting = false;
-    var game_over = false;
+    const me = people.my_current_user_id();
+    const square_values = {};
+    let num_filled = 0;
+    let waiting = false;
+    let game_over = false;
 
     function is_game_over() {
-        var lines = [
+        const lines = [
             [1, 2, 3],
             [4, 5, 6],
             [7, 8, 9],
@@ -26,7 +22,7 @@ var tictactoe_data_holder = function () {
         ];
 
         function line_won(line) {
-            var token = square_values[line[0]];
+            const token = square_values[line[0]];
 
             if (!token) {
                 return false;
@@ -37,7 +33,7 @@ var tictactoe_data_holder = function () {
                 square_values[line[2]] === token);
         }
 
-        var board = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+        const board = [1, 2, 3, 4, 5, 6, 7, 8, 9];
         function filled(i) {
             return square_values[i];
         }
@@ -54,20 +50,20 @@ var tictactoe_data_holder = function () {
             };
         }
 
-        var squares = [
+        const squares = [
             [square(1), square(2), square(3)],
             [square(4), square(5), square(6)],
             [square(7), square(8), square(9)],
         ];
 
-        var token = num_filled % 2 === 0 ? 'X' : 'O';
-        var move_status = token + "'s turn";
+        const token = num_filled % 2 === 0 ? 'X' : 'O';
+        let move_status = token + "'s turn";
 
         if (game_over) {
             move_status = "Game over!";
         }
 
-        var widget_data = {
+        const widget_data = {
             squares: squares,
             move_status: move_status,
         };
@@ -78,7 +74,7 @@ var tictactoe_data_holder = function () {
     self.handle = {
         square_click: {
             outbound: function (idx) {
-                var event = {
+                const event = {
                     type: 'square_click',
                     idx: idx,
                     num_filled: num_filled,
@@ -87,14 +83,14 @@ var tictactoe_data_holder = function () {
             },
 
             inbound: function (sender_id, data) {
-                var idx = data.idx;
+                const idx = data.idx;
 
                 if (data.num_filled !== num_filled) {
                     blueslip.info('out of sync', data.num_filled);
                     return;
                 }
 
-                var token = num_filled % 2 === 0 ? 'X' : 'O';
+                const token = num_filled % 2 === 0 ? 'X' : 'O';
 
                 if (square_values[idx]) {
                     return;
@@ -112,7 +108,7 @@ var tictactoe_data_holder = function () {
 
 
     self.handle_event = function (sender_id, data) {
-        var type = data.type;
+        const type = data.type;
         if (self.handle[type]) {
             self.handle[type].inbound(sender_id, data);
         }
@@ -122,21 +118,21 @@ var tictactoe_data_holder = function () {
 };
 
 exports.activate = function (opts) {
-    var elem = opts.elem;
-    var callback = opts.callback;
+    const elem = opts.elem;
+    const callback = opts.callback;
 
-    var tictactoe_data = tictactoe_data_holder();
+    const tictactoe_data = tictactoe_data_holder();
 
     function render() {
-        var widget_data = tictactoe_data.get_widget_data();
-        var html = render_widgets_tictactoe_widget(widget_data);
+        const widget_data = tictactoe_data.get_widget_data();
+        const html = render_widgets_tictactoe_widget(widget_data);
         elem.html(html);
 
         elem.find("button.tictactoe-square").on('click', function (e) {
             e.stopPropagation();
-            var idx = $(e.target).attr('data-idx');
+            const idx = $(e.target).attr('data-idx');
 
-            var data = tictactoe_data.handle.square_click.outbound(idx);
+            const data = tictactoe_data.handle.square_click.outbound(idx);
             callback(data);
         });
     }
@@ -151,11 +147,4 @@ exports.activate = function (opts) {
     render();
 };
 
-return exports;
-
-}());
-if (typeof module !== 'undefined') {
-    module.exports = tictactoe_widget;
-}
-
-window.tictactoe_widget = tictactoe_widget;
+window.tictactoe_widget = exports;

@@ -242,6 +242,11 @@ class BugdownMiscTest(ZulipTestCase):
         assert(user is not None)
         self.assertEqual(user['email'], hamlet.email)
 
+        self.assertFalse(mention_data.message_has_wildcards())
+        content = '@**King Hamlet** @**Cordelia lear** @**all**'
+        mention_data = bugdown.MentionData(realm.id, content)
+        self.assertTrue(mention_data.message_has_wildcards())
+
     def test_invalid_katex_path(self) -> None:
         with self.settings(DEPLOY_ROOT="/nonexistent"):
             with mock.patch('logging.error') as mock_logger:
@@ -250,6 +255,7 @@ class BugdownMiscTest(ZulipTestCase):
 
 class BugdownTest(ZulipTestCase):
     def setUp(self) -> None:
+        super().setUp()
         bugdown.clear_state_for_testing()
 
     def assertEqual(self, first: Any, second: Any, msg: str = "") -> None:
@@ -303,7 +309,6 @@ class BugdownTest(ZulipTestCase):
                 converted = bugdown_convert(test['input'])
 
             with self.subTest(markdown_test_case=name):
-                print("Running Bugdown test %s" % (name,))
                 self.assertEqual(converted, test['expected_output'])
 
         def replaced(payload: str, url: str, phrase: str='') -> str:
@@ -463,7 +468,7 @@ class BugdownTest(ZulipTestCase):
         converted = render_markdown(msg, content)
         self.assertEqual(converted, expected)
 
-        content = '>- http://cdn.wallpapersafari.com/13/6/16eVjx.jpeg\n\nAwesome!'
+        content = '>* http://cdn.wallpapersafari.com/13/6/16eVjx.jpeg\n\nAwesome!'
         expected = '<blockquote>\n<ul>\n<li><a href="http://cdn.wallpapersafari.com/13/6/16eVjx.jpeg" target="_blank" title="http://cdn.wallpapersafari.com/13/6/16eVjx.jpeg">http://cdn.wallpapersafari.com/13/6/16eVjx.jpeg</a></li>\n</ul>\n</blockquote>\n<p>Awesome!</p>'
         sender_user_profile = self.example_user('othello')
         msg = Message(sender=sender_user_profile, sending_client=get_client("test"))
@@ -997,7 +1002,7 @@ class BugdownTest(ZulipTestCase):
             rendered_content,
             '<p>/me makes a list</p>\n<ul>\n<li>one</li>\n<li>two</li>\n</ul>'
         )
-        self.assertFalse(Message.is_status_message(content, rendered_content))
+        self.assertTrue(Message.is_status_message(content, rendered_content))
 
         content = '/me takes a walk'
         rendered_content = render_markdown(msg, content)
@@ -1344,17 +1349,17 @@ class BugdownTest(ZulipTestCase):
         self.assertEqual(msg.mentions_user_ids, set())
 
     def test_possible_mentions(self) -> None:
-        def assert_mentions(content: str, names: Set[str]) -> None:
-            self.assertEqual(possible_mentions(content), names)
+        def assert_mentions(content: str, names: Set[str], has_wildcards: Optional[bool]=False) -> None:
+            self.assertEqual(possible_mentions(content), (names, has_wildcards))
 
         assert_mentions('', set())
         assert_mentions('boring', set())
-        assert_mentions('@**all**', set())
+        assert_mentions('@**all**', set(), True)
         assert_mentions('smush@**steve**smush', set())
 
         assert_mentions(
             'Hello @**King Hamlet** and @**Cordelia Lear**\n@**Foo van Barson|1234** @**all**',
-            {'King Hamlet', 'Cordelia Lear', 'Foo van Barson|1234'}
+            {'King Hamlet', 'Cordelia Lear', 'Foo van Barson|1234'}, True
         )
 
     def test_mention_multiple(self) -> None:

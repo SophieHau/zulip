@@ -1,21 +1,17 @@
-
-import os
 import email
-import ujson
-
+import os
 from email.message import Message
 from email.mime.text import MIMEText
+from typing import Dict, Optional
 
+import ujson
 from django.conf import settings
 from django.core.management.base import CommandParser
 
 from zerver.lib.email_mirror import mirror_email_message
 from zerver.lib.email_mirror_helpers import encode_email_address
-from zerver.lib.management import ZulipBaseCommand, CommandError
-
-from zerver.models import Realm, get_stream, get_realm
-
-from typing import Dict
+from zerver.lib.management import CommandError, ZulipBaseCommand
+from zerver.models import Realm, get_realm, get_stream
 
 # This command loads an email from a specified file and sends it
 # to the email mirror. Simple emails can be passed in a JSON file,
@@ -54,7 +50,7 @@ Example:
 
         self.add_realm_args(parser, help="Specify which realm to connect to; default is zulip")
 
-    def handle(self, **options: str) -> None:
+    def handle(self, **options: Optional[str]) -> None:
         if options['fixture'] is None:
             self.print_help('./manage.py', 'send_to_email_mirror')
             raise CommandError
@@ -106,12 +102,15 @@ Example:
     def _prepare_message(self, message: Message, realm: Realm, stream_name: str) -> None:
         stream = get_stream(stream_name, realm)
 
+        # The block below ensures that the imported email message doesn't have any recipient-like
+        # headers that are inconsistent with the recipient we want (the stream address).
         recipient_headers = ["X-Gm-Original-To", "Delivered-To",
-                             "Resent-To", "Resent-CC", "To", "CC"]
+                             "Resent-To", "Resent-CC", "CC"]
         for header in recipient_headers:
             if header in message:
                 del message[header]
                 message[header] = encode_email_address(stream)
-                return
 
+        if 'To' in message:
+            del message['To']
         message['To'] = encode_email_address(stream)

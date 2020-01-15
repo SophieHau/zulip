@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render, redirect
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_safe
 
 from zerver.models import (
     get_realm, get_user_by_delivery_email, get_realm_stream, Realm,
@@ -43,14 +43,14 @@ def clear_emails(request: HttpRequest) -> HttpResponse:
         pass
     return redirect(email_page)
 
-@require_GET
+@require_safe
 def generate_all_emails(request: HttpRequest) -> HttpResponse:
     if not settings.TEST_SUITE:  # nocoverage
         # It's really convenient to automatically inline the email CSS
         # here, since that saves a step when testing out changes to
         # the email CSS.  But we don't run this inside the test suite,
         # because by role, the tests shouldn't be doing a provision-like thing.
-        subprocess.check_call(["./tools/inline-email-css"])
+        subprocess.check_call(["./scripts/setup/inline-email-css"])
 
     # We import the Django test client inside the view function,
     # because it isn't needed in production elsewhere, and not

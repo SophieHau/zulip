@@ -90,9 +90,9 @@ def create_default_stream_group(request: HttpRequest, user_profile: UserProfile,
 @require_realm_admin
 @has_request_variables
 def update_default_stream_group_info(request: HttpRequest, user_profile: UserProfile, group_id: int,
-                                     new_group_name: str=REQ(validator=check_string, default=None),
-                                     new_description: str=REQ(validator=check_string,
-                                                              default=None)) -> None:
+                                     new_group_name: Optional[str]=REQ(validator=check_string, default=None),
+                                     new_description: Optional[str]=REQ(validator=check_string,
+                                                                        default=None)) -> None:
     if not new_group_name and not new_description:
         return json_error(_('You must pass "new_description" or "new_group_name".'))
 
@@ -180,8 +180,16 @@ def update_stream_backend(
         do_change_stream_invite_only(stream, is_private, history_public_to_subscribers)
     return json_success()
 
-def list_subscriptions_backend(request: HttpRequest, user_profile: UserProfile) -> HttpResponse:
-    return json_success({"subscriptions": gather_subscriptions(user_profile)[0]})
+@has_request_variables
+def list_subscriptions_backend(
+    request: HttpRequest,
+    user_profile: UserProfile,
+    include_subscribers: bool=REQ(validator=check_bool, default=False),
+) -> HttpResponse:
+    subscribed, _ = gather_subscriptions(
+        user_profile, include_subscribers=include_subscribers
+    )
+    return json_success({"subscriptions": subscribed})
 
 FuncKwargPair = Tuple[Callable[..., HttpResponse], Dict[str, Union[int, Iterable[Any]]]]
 
@@ -249,7 +257,7 @@ def remove_subscriptions_backend(
     else:
         people_to_unsub = set([user_profile])
 
-    result = dict(removed=[], not_subscribed=[])  # type: Dict[str, List[str]]
+    result = dict(removed=[], not_removed=[])  # type: Dict[str, List[str]]
     (removed, not_subscribed) = bulk_remove_subscriptions(people_to_unsub, streams,
                                                           request.client,
                                                           acting_user=user_profile)
@@ -257,7 +265,7 @@ def remove_subscriptions_backend(
     for (subscriber, removed_stream) in removed:
         result["removed"].append(removed_stream.name)
     for (subscriber, not_subscribed_stream) in not_subscribed:
-        result["not_subscribed"].append(not_subscribed_stream.name)
+        result["not_removed"].append(not_subscribed_stream.name)
 
     return json_success(result)
 
@@ -471,7 +479,8 @@ def get_streams_backend(
 
 @has_request_variables
 def get_topics_backend(request: HttpRequest, user_profile: UserProfile,
-                       stream_id: int=REQ(converter=to_non_negative_int)) -> HttpResponse:
+                       stream_id: int=REQ(converter=to_non_negative_int,
+                                          path_only=True)) -> HttpResponse:
     (stream, recipient, sub) = access_stream_by_id(user_profile, stream_id)
 
     result = get_topic_history_for_stream(
@@ -497,7 +506,7 @@ def delete_in_topic(request: HttpRequest, user_profile: UserProfile,
         messages = [message for message in messages if message.id in
                     deletable_message_ids]
 
-    do_delete_messages(user_profile, messages)
+    do_delete_messages(user_profile.realm, messages)
 
     return json_success()
 
@@ -535,7 +544,7 @@ def json_get_stream_id(request: HttpRequest,
 @has_request_variables
 def update_subscriptions_property(request: HttpRequest,
                                   user_profile: UserProfile,
-                                  stream_id: int=REQ(),
+                                  stream_id: int=REQ(validator=check_int),
                                   property: str=REQ(),
                                   value: str=REQ()) -> HttpResponse:
     subscription_data = [{"property": property,
@@ -571,7 +580,8 @@ def update_subscription_properties_backend(
                            "audible_notifications": check_bool,
                            "push_notifications": check_bool,
                            "email_notifications": check_bool,
-                           "pin_to_top": check_bool}
+                           "pin_to_top": check_bool,
+                           "wildcard_mentions_notify": check_bool}
     response_data = []
 
     for change in subscription_data:

@@ -1,11 +1,9 @@
-var copy_and_paste = (function () {
-
-var exports = {};
+const TurndownService = require("turndown/lib/turndown.cjs.js");
 
 function find_boundary_tr(initial_tr, iterate_row) {
-    var j;
-    var skip_same_td_check = false;
-    var tr = initial_tr;
+    let j;
+    let skip_same_td_check = false;
+    let tr = initial_tr;
 
     // If the selection boundary is somewhere that does not have a
     // parent tr, we should let the browser handle the copy-paste
@@ -36,7 +34,7 @@ function find_boundary_tr(initial_tr, iterate_row) {
 }
 
 function construct_recipient_header(message_row) {
-    var message_header_content = rows.get_message_recipient_header(message_row)
+    const message_header_content = rows.get_message_recipient_header(message_row)
         .text()
         .replace(/\s+/g, " ")
         .replace(/^\s/, "").replace(/\s$/, "");
@@ -59,14 +57,14 @@ how modern browsers deal with copy/paste.  Just test
 your changes carefully.
 */
 function construct_copy_div(div, start_id, end_id) {
-    var start_row = current_msg_list.get_row(start_id);
-    var start_recipient_row = rows.get_message_recipient_row(start_row);
-    var start_recipient_row_id = rows.id_for_recipient_row(start_recipient_row);
-    var should_include_start_recipient_header = false;
+    const start_row = current_msg_list.get_row(start_id);
+    const start_recipient_row = rows.get_message_recipient_row(start_row);
+    const start_recipient_row_id = rows.id_for_recipient_row(start_recipient_row);
+    let should_include_start_recipient_header = false;
 
-    var last_recipient_row_id = start_recipient_row_id;
-    for (var row = start_row; rows.id(row) <= end_id; row = rows.next_visible(row)) {
-        var recipient_row_id = rows.id_for_recipient_row(rows.get_message_recipient_row(row));
+    let last_recipient_row_id = start_recipient_row_id;
+    for (let row = start_row; rows.id(row) <= end_id; row = rows.next_visible(row)) {
+        const recipient_row_id = rows.id_for_recipient_row(rows.get_message_recipient_row(row));
         // if we found a message from another recipient,
         // it means that we have messages from several recipients,
         // so we have to add new recipient's bar to final copied message
@@ -76,8 +74,8 @@ function construct_copy_div(div, start_id, end_id) {
             last_recipient_row_id = recipient_row_id;
             should_include_start_recipient_header = true;
         }
-        var message = current_msg_list.get(rows.id(row));
-        var message_firstp = $(message.content).slice(0, 1);
+        const message = current_msg_list.get(rows.id(row));
+        const message_firstp = $(message.content).slice(0, 1);
         message_firstp.prepend(message.sender_full_name + ": ");
         div.append(message_firstp);
         div.append($(message.content).slice(1));
@@ -134,13 +132,13 @@ exports.copy_handler = function () {
     // * Otherwise, we want to copy the bodies of all messages that
     //   were partially covered by the selection.
 
-    var selection = window.getSelection();
-    var analysis = exports.analyze_selection(selection);
-    var ranges = analysis.ranges;
-    var start_id = analysis.start_id;
-    var end_id = analysis.end_id;
-    var skip_same_td_check = analysis.skip_same_td_check;
-    var div = $('<div>');
+    const selection = window.getSelection();
+    const analysis = exports.analyze_selection(selection);
+    const ranges = analysis.ranges;
+    const start_id = analysis.start_id;
+    const end_id = analysis.end_id;
+    const skip_same_td_check = analysis.skip_same_td_check;
+    const div = $('<div>');
 
     if (start_id === undefined || end_id === undefined) {
         // In this case either the starting message or the ending
@@ -188,20 +186,20 @@ exports.analyze_selection = function (selection) {
     // analyze the combined range of the selections, and copy their
     // full content.
 
-    var i;
-    var range;
-    var ranges = [];
-    var startc;
-    var endc;
-    var initial_end_tr;
-    var start_id;
-    var end_id;
-    var start_data;
-    var end_data;
+    let i;
+    let range;
+    const ranges = [];
+    let startc;
+    let endc;
+    let initial_end_tr;
+    let start_id;
+    let end_id;
+    let start_data;
+    let end_data;
     // skip_same_td_check is true whenever we know for a fact that the
     // selection covers multiple messages (and thus we should no
     // longer consider letting the browser handle the copy event).
-    var skip_same_td_check = false;
+    let skip_same_td_check = false;
 
     for (i = 0; i < selection.rangeCount; i += 1) {
         range = selection.getRangeAt(i);
@@ -263,60 +261,43 @@ exports.analyze_selection = function (selection) {
 };
 
 exports.paste_handler_converter = function (paste_html) {
-    var converters = {
-        converters: [
-            {
-                filter: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
-                replacement: function (content) {
-                    return content;
-                },
-            },
+    const turndownService = new TurndownService();
+    turndownService.addRule('headings', {
+        filter: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+        replacement: function (content) {
+            return content;
+        },
+    });
+    turndownService.addRule('emphasis', {
+        filter: ['em', 'i'],
+        replacement: function (content) {
+            return '*' + content + '*';
+        },
+    });
+    // Checks for raw links without custom text or title.
+    turndownService.addRule('links', {
+        filter: function (node) {
+            return node.nodeName === "A" &&
+                node.href === node.innerHTML &&
+                node.href === node.title;
+        },
+        replacement: function (content) {
+            return content;
+        },
+    });
 
-            {
-                filter: ['em', 'i'],
-                replacement: function (content) {
-                    return '*' + content + '*';
-                },
-            },
-            {
-                // Checks for raw links without custom text or title.
-                filter: function (node) {
-                    return node.nodeName === "A" &&
-                      node.href === node.innerHTML &&
-                      node.href === node.title;
-                },
-                replacement: function (content) {
-                    return content;
-                },
-            },
-            {
-                // Checks for escaped ordered list syntax.
-                filter: function (node) {
-                    return /(\d+)\\\. /.test(node.innerHTML);
-                },
-                replacement: function (content) {
-                    return content.replace(/(\d+)\\\. /g, '$1. ');
-                },
-            },
-        ],
-    };
-    var markdown_html = toMarkdown(paste_html, converters);
+    let markdown_text = turndownService.turndown(paste_html);
 
-    // Now that we've done the main conversion, we want to remove
-    // any HTML tags that weren't converted to markdown-style
-    // text, since Bugdown doesn't support those.
-    var div = document.createElement("div");
-    div.innerHTML = markdown_html;
-    // Using textContent for modern browsers, innerText works for Internet Explorer
-    var markdown_text = div.textContent || div.innerText || "";
-    markdown_text = markdown_text.trim();
+    // Checks for escaped ordered list syntax.
+    markdown_text = markdown_text.replace(/^(\W* {0,3})(\d+)\\\. /gm, '$1$2. ');
+
     // Removes newlines before the start of a list and between list elements.
     markdown_text = markdown_text.replace(/\n+([*+-])/g, '\n$1');
     return markdown_text;
 };
 
 exports.paste_handler = function (event) {
-    var clipboardData = event.originalEvent.clipboardData;
+    const clipboardData = event.originalEvent.clipboardData;
     if (!clipboardData) {
         // On IE11, ClipboardData isn't defined.  One can instead
         // access it with `window.clipboardData`, but even that
@@ -327,10 +308,10 @@ exports.paste_handler = function (event) {
     }
 
     if (clipboardData.getData) {
-        var paste_html = clipboardData.getData('text/html');
+        const paste_html = clipboardData.getData('text/html');
         if (paste_html && page_params.development_environment) {
-            var text = exports.paste_handler_converter(paste_html);
-            var mdImageRegex = /^!\[.*\]\(.*\)$/;
+            const text = exports.paste_handler_converter(paste_html);
+            const mdImageRegex = /^!\[.*\]\(.*\)$/;
             if (text.match(mdImageRegex)) {
                 // This block catches cases where we are pasting an
                 // image into Zulip, which should be handled by the
@@ -349,10 +330,4 @@ exports.initialize = function () {
     $('body').on('paste', '#message_edit_form', exports.paste_handler);
 };
 
-return exports;
-}());
-
-if (typeof module !== 'undefined') {
-    module.exports = copy_and_paste;
-}
-window.copy_and_paste = copy_and_paste;
+window.copy_and_paste = exports;

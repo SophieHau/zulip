@@ -6,14 +6,18 @@ from django.test import TestCase, override_settings
 from sqlalchemy.sql import (
     and_, select, column, table,
 )
-from sqlalchemy.sql import compiler
+from sqlalchemy.sql.elements import ClauseElement
 
 from zerver.models import (
-    Realm, Subscription,
+    Realm, Subscription, Recipient, Stream,
     get_display_recipient, get_personal_recipient, get_realm, get_stream,
     UserMessage, get_stream_recipient, Message
 )
-from zerver.lib.actions import do_set_realm_property, do_deactivate_user
+from zerver.lib.actions import (
+    do_set_realm_property,
+    do_deactivate_user,
+    create_streams_if_needed
+)
 from zerver.lib.message import (
     MessageDict,
 )
@@ -37,6 +41,7 @@ from zerver.lib.topic import (
 from zerver.lib.topic_mutes import (
     set_topic_mutes,
 )
+from zerver.lib.types import DisplayRecipientT
 from zerver.views.messages import (
     exclude_muting_conditions,
     get_messages_backend, ok_to_include_history,
@@ -46,19 +51,20 @@ from zerver.views.messages import (
     LARGER_THAN_MAX_MESSAGE_ID,
 )
 
-from typing import Dict, List, Sequence, Tuple, Union, Any, Optional
+from typing import Dict, Mapping, List, Sequence, Tuple, Union, Any, Optional
 import mock
 import os
-import re
 import ujson
 
-def get_sqlalchemy_query_params(query: str) -> Dict[str, str]:
+def get_sqlalchemy_sql(query: ClauseElement) -> str:
     dialect = get_sqlalchemy_connection().dialect
-    comp = compiler.SQLCompiler(dialect, query)
-    return comp.params
+    comp = query.compile(dialect=dialect)
+    return str(comp)
 
-def fix_ws(s: str) -> str:
-    return re.sub(r'\s+', ' ', str(s)).strip()
+def get_sqlalchemy_query_params(query: ClauseElement) -> Dict[str, object]:
+    dialect = get_sqlalchemy_connection().dialect
+    comp = query.compile(dialect=dialect)
+    return comp.params
 
 def get_recipient_id_for_stream_name(realm: Realm, stream_name: str) -> str:
     stream = get_stream(stream_name, realm)
@@ -79,6 +85,7 @@ def first_visible_id_as(message_id: int) -> Any:
 
 class NarrowBuilderTest(ZulipTestCase):
     def setUp(self) -> None:
+        super().setUp()
         self.realm = get_realm('zulip')
         self.user_profile = self.example_user('hamlet')
         self.builder = NarrowBuilder(self.user_profile, column('id'))
@@ -90,11 +97,11 @@ class NarrowBuilderTest(ZulipTestCase):
 
     def test_add_term_using_stream_operator(self) -> None:
         term = dict(operator='stream', operand='Scotland')
-        self._do_add_term_test(term, 'WHERE recipient_id = :recipient_id_1')
+        self._do_add_term_test(term, 'WHERE recipient_id = %(recipient_id_1)s')
 
     def test_add_term_using_stream_operator_and_negated(self) -> None:  # NEGATED
         term = dict(operator='stream', operand='Scotland', negated=True)
-        self._do_add_term_test(term, 'WHERE recipient_id != :recipient_id_1')
+        self._do_add_term_test(term, 'WHERE recipient_id != %(recipient_id_1)s')
 
     def test_add_term_using_stream_operator_and_non_existing_operand_should_raise_error(
             self) -> None:  # NEGATED
@@ -103,31 +110,96 @@ class NarrowBuilderTest(ZulipTestCase):
 
     def test_add_term_using_is_operator_and_private_operand(self) -> None:
         term = dict(operator='is', operand='private')
-        self._do_add_term_test(term, 'WHERE (flags & :flags_1) != :param_1')
+        self._do_add_term_test(term, 'WHERE (flags & %(flags_1)s) != %(param_1)s')
+
+    def test_add_term_using_streams_operator_and_invalid_operand_should_raise_error(
+            self) -> None:  # NEGATED
+        term = dict(operator='streams', operand='invalid_operands')
+        self.assertRaises(BadNarrowOperator, self._build_query, term)
+
+    def test_add_term_using_streams_operator_and_public_stream_operand(self) -> None:
+        term = dict(operator='streams', operand='public')
+        self._do_add_term_test(term, 'WHERE recipient_id IN (%(recipient_id_1)s, %(recipient_id_2)s, %(recipient_id_3)s, %(recipient_id_4)s, %(recipient_id_5)s)')
+
+        # Add new streams
+        stream_dicts = [
+            {
+                "name": "publicstream",
+                "description": "Public stream with public history"
+            },
+            {
+                "name": "privatestream",
+                "description": "Private stream with non-public history",
+                "invite_only": True
+            },
+            {
+                "name": "privatewithhistory",
+                "description": "Private stream with public history",
+                "invite_only": True,
+                "history_public_to_subscribers": True
+            }
+        ]  # type: List[Mapping[str, Any]]
+        realm = get_realm('zulip')
+        created, existing = create_streams_if_needed(realm, stream_dicts)
+        self.assertEqual(len(created), 3)
+        self.assertEqual(len(existing), 0)
+
+        # Number of recipient ids will increase by 1 and not 3
+        self._do_add_term_test(term, 'WHERE recipient_id IN (%(recipient_id_1)s, %(recipient_id_2)s, %(recipient_id_3)s, %(recipient_id_4)s, %(recipient_id_5)s, %(recipient_id_6)s)')
+
+    def test_add_term_using_streams_operator_and_public_stream_operand_negated(self) -> None:
+        term = dict(operator='streams', operand='public', negated=True)
+        self._do_add_term_test(term, 'WHERE recipient_id NOT IN (%(recipient_id_1)s, %(recipient_id_2)s, %(recipient_id_3)s, %(recipient_id_4)s, %(recipient_id_5)s)')
+
+        # Add new streams
+        stream_dicts = [
+            {
+                "name": "publicstream",
+                "description": "Public stream with public history"
+            },
+            {
+                "name": "privatestream",
+                "description": "Private stream with non-public history",
+                "invite_only": True
+            },
+            {
+                "name": "privatewithhistory",
+                "description": "Private stream with public history",
+                "invite_only": True,
+                "history_public_to_subscribers": True
+            }
+        ]  # type: List[Mapping[str, Any]]
+        realm = get_realm('zulip')
+        created, existing = create_streams_if_needed(realm, stream_dicts)
+        self.assertEqual(len(created), 3)
+        self.assertEqual(len(existing), 0)
+
+        # Number of recipient ids will increase by 1 and not 3
+        self._do_add_term_test(term, 'WHERE recipient_id NOT IN (%(recipient_id_1)s, %(recipient_id_2)s, %(recipient_id_3)s, %(recipient_id_4)s, %(recipient_id_5)s, %(recipient_id_6)s)')
 
     def test_add_term_using_is_operator_private_operand_and_negated(
             self) -> None:  # NEGATED
         term = dict(operator='is', operand='private', negated=True)
-        self._do_add_term_test(term, 'WHERE (flags & :flags_1) = :param_1')
+        self._do_add_term_test(term, 'WHERE (flags & %(flags_1)s) = %(param_1)s')
 
     def test_add_term_using_is_operator_and_non_private_operand(self) -> None:
         for operand in ['starred', 'mentioned', 'alerted']:
             term = dict(operator='is', operand=operand)
-            self._do_add_term_test(term, 'WHERE (flags & :flags_1) != :param_1')
+            self._do_add_term_test(term, 'WHERE (flags & %(flags_1)s) != %(param_1)s')
 
     def test_add_term_using_is_operator_and_unread_operand(self) -> None:
         term = dict(operator='is', operand='unread')
-        self._do_add_term_test(term, 'WHERE (flags & :flags_1) = :param_1')
+        self._do_add_term_test(term, 'WHERE (flags & %(flags_1)s) = %(param_1)s')
 
     def test_add_term_using_is_operator_and_unread_operand_and_negated(
             self) -> None:  # NEGATED
         term = dict(operator='is', operand='unread', negated=True)
-        self._do_add_term_test(term, 'WHERE (flags & :flags_1) != :param_1')
+        self._do_add_term_test(term, 'WHERE (flags & %(flags_1)s) != %(param_1)s')
 
     def test_add_term_using_is_operator_non_private_operand_and_negated(
             self) -> None:  # NEGATED
         term = dict(operator='is', operand='starred', negated=True)
-        where_clause = 'WHERE (flags & :flags_1) = :param_1'
+        where_clause = 'WHERE (flags & %(flags_1)s) = %(param_1)s'
         params = dict(
             flags_1=UserMessage.flags.starred.mask,
             param_1=0
@@ -135,7 +207,7 @@ class NarrowBuilderTest(ZulipTestCase):
         self._do_add_term_test(term, where_clause, params)
 
         term = dict(operator='is', operand='alerted', negated=True)
-        where_clause = 'WHERE (flags & :flags_1) = :param_1'
+        where_clause = 'WHERE (flags & %(flags_1)s) = %(param_1)s'
         params = dict(
             flags_1=UserMessage.flags.has_alert_word.mask,
             param_1=0
@@ -143,7 +215,7 @@ class NarrowBuilderTest(ZulipTestCase):
         self._do_add_term_test(term, where_clause, params)
 
         term = dict(operator='is', operand='mentioned', negated=True)
-        where_clause = 'WHERE NOT ((flags & :flags_1) != :param_1 OR (flags & :flags_2) != :param_2)'
+        where_clause = 'WHERE NOT ((flags & %(flags_1)s) != %(param_1)s OR (flags & %(flags_2)s) != %(param_2)s)'
         params = dict(
             flags_1=UserMessage.flags.mentioned.mask,
             param_1=0,
@@ -158,29 +230,29 @@ class NarrowBuilderTest(ZulipTestCase):
 
     def test_add_term_using_topic_operator_and_lunch_operand(self) -> None:
         term = dict(operator='topic', operand='lunch')
-        self._do_add_term_test(term, 'WHERE upper(subject) = upper(:param_1)')
+        self._do_add_term_test(term, 'WHERE upper(subject) = upper(%(param_1)s)')
 
     def test_add_term_using_topic_operator_lunch_operand_and_negated(
             self) -> None:  # NEGATED
         term = dict(operator='topic', operand='lunch', negated=True)
-        self._do_add_term_test(term, 'WHERE upper(subject) != upper(:param_1)')
+        self._do_add_term_test(term, 'WHERE upper(subject) != upper(%(param_1)s)')
 
     def test_add_term_using_topic_operator_and_personal_operand(self) -> None:
         term = dict(operator='topic', operand='personal')
-        self._do_add_term_test(term, 'WHERE upper(subject) = upper(:param_1)')
+        self._do_add_term_test(term, 'WHERE upper(subject) = upper(%(param_1)s)')
 
     def test_add_term_using_topic_operator_personal_operand_and_negated(
             self) -> None:  # NEGATED
         term = dict(operator='topic', operand='personal', negated=True)
-        self._do_add_term_test(term, 'WHERE upper(subject) != upper(:param_1)')
+        self._do_add_term_test(term, 'WHERE upper(subject) != upper(%(param_1)s)')
 
     def test_add_term_using_sender_operator(self) -> None:
         term = dict(operator='sender', operand=self.example_email("othello"))
-        self._do_add_term_test(term, 'WHERE sender_id = :param_1')
+        self._do_add_term_test(term, 'WHERE sender_id = %(param_1)s')
 
     def test_add_term_using_sender_operator_and_negated(self) -> None:  # NEGATED
         term = dict(operator='sender', operand=self.example_email("othello"), negated=True)
-        self._do_add_term_test(term, 'WHERE sender_id != :param_1')
+        self._do_add_term_test(term, 'WHERE sender_id != %(param_1)s')
 
     def test_add_term_using_sender_operator_with_non_existing_user_as_operand(
             self) -> None:  # NEGATED
@@ -189,38 +261,38 @@ class NarrowBuilderTest(ZulipTestCase):
 
     def test_add_term_using_pm_with_operator_and_not_the_same_user_as_operand(self) -> None:
         term = dict(operator='pm-with', operand=self.example_email("othello"))
-        self._do_add_term_test(term, 'WHERE sender_id = :sender_id_1 AND recipient_id = :recipient_id_1 OR sender_id = :sender_id_2 AND recipient_id = :recipient_id_2')
+        self._do_add_term_test(term, 'WHERE sender_id = %(sender_id_1)s AND recipient_id = %(recipient_id_1)s OR sender_id = %(sender_id_2)s AND recipient_id = %(recipient_id_2)s')
 
     def test_add_term_using_pm_with_operator_not_the_same_user_as_operand_and_negated(
             self) -> None:  # NEGATED
         term = dict(operator='pm-with', operand=self.example_email("othello"), negated=True)
-        self._do_add_term_test(term, 'WHERE NOT (sender_id = :sender_id_1 AND recipient_id = :recipient_id_1 OR sender_id = :sender_id_2 AND recipient_id = :recipient_id_2)')
+        self._do_add_term_test(term, 'WHERE NOT (sender_id = %(sender_id_1)s AND recipient_id = %(recipient_id_1)s OR sender_id = %(sender_id_2)s AND recipient_id = %(recipient_id_2)s)')
 
     def test_add_term_using_pm_with_operator_the_same_user_as_operand(self) -> None:
         term = dict(operator='pm-with', operand=self.example_email("hamlet"))
-        self._do_add_term_test(term, 'WHERE sender_id = :sender_id_1 AND recipient_id = :recipient_id_1')
+        self._do_add_term_test(term, 'WHERE sender_id = %(sender_id_1)s AND recipient_id = %(recipient_id_1)s')
 
     def test_add_term_using_pm_with_operator_the_same_user_as_operand_and_negated(
             self) -> None:  # NEGATED
         term = dict(operator='pm-with', operand=self.example_email("hamlet"), negated=True)
-        self._do_add_term_test(term, 'WHERE NOT (sender_id = :sender_id_1 AND recipient_id = :recipient_id_1)')
+        self._do_add_term_test(term, 'WHERE NOT (sender_id = %(sender_id_1)s AND recipient_id = %(recipient_id_1)s)')
 
     def test_add_term_using_pm_with_operator_and_self_and_user_as_operand(self) -> None:
         term = dict(operator='pm-with', operand='hamlet@zulip.com, othello@zulip.com')
-        self._do_add_term_test(term, 'WHERE sender_id = :sender_id_1 AND recipient_id = :recipient_id_1 OR sender_id = :sender_id_2 AND recipient_id = :recipient_id_2')
+        self._do_add_term_test(term, 'WHERE sender_id = %(sender_id_1)s AND recipient_id = %(recipient_id_1)s OR sender_id = %(sender_id_2)s AND recipient_id = %(recipient_id_2)s')
 
     def test_add_term_using_pm_with_operator_more_than_one_user_as_operand(self) -> None:
         term = dict(operator='pm-with', operand='cordelia@zulip.com, othello@zulip.com')
-        self._do_add_term_test(term, 'WHERE recipient_id = :recipient_id_1')
+        self._do_add_term_test(term, 'WHERE recipient_id = %(recipient_id_1)s')
 
     def test_add_term_using_pm_with_operator_self_and_user_as_operand_and_negated(
             self) -> None:  # NEGATED
         term = dict(operator='pm-with', operand='hamlet@zulip.com, othello@zulip.com', negated=True)
-        self._do_add_term_test(term, 'WHERE NOT (sender_id = :sender_id_1 AND recipient_id = :recipient_id_1 OR sender_id = :sender_id_2 AND recipient_id = :recipient_id_2)')
+        self._do_add_term_test(term, 'WHERE NOT (sender_id = %(sender_id_1)s AND recipient_id = %(recipient_id_1)s OR sender_id = %(sender_id_2)s AND recipient_id = %(recipient_id_2)s)')
 
     def test_add_term_using_pm_with_operator_more_than_one_user_as_operand_and_negated(self) -> None:
         term = dict(operator='pm-with', operand='cordelia@zulip.com, othello@zulip.com', negated=True)
-        self._do_add_term_test(term, 'WHERE recipient_id != :recipient_id_1')
+        self._do_add_term_test(term, 'WHERE recipient_id != %(recipient_id_1)s')
 
     def test_add_term_using_pm_with_operator_with_comma_noise(self) -> None:
         term = dict(operator='pm-with', operand=' ,,, ,,, ,')
@@ -232,7 +304,7 @@ class NarrowBuilderTest(ZulipTestCase):
 
     def test_add_term_using_id_operator(self) -> None:
         term = dict(operator='id', operand=555)
-        self._do_add_term_test(term, 'WHERE id = :param_1')
+        self._do_add_term_test(term, 'WHERE id = %(param_1)s')
 
     def test_add_term_using_id_operator_invalid(self) -> None:
         term = dict(operator='id', operand='')
@@ -243,7 +315,7 @@ class NarrowBuilderTest(ZulipTestCase):
 
     def test_add_term_using_id_operator_and_negated(self) -> None:  # NEGATED
         term = dict(operator='id', operand=555, negated=True)
-        self._do_add_term_test(term, 'WHERE id != :param_1')
+        self._do_add_term_test(term, 'WHERE id != %(param_1)s')
 
     def test_add_term_using_group_pm_operator_and_not_the_same_user_as_operand(self) -> None:
         # Test wtihout any such group PM threads existing
@@ -255,7 +327,7 @@ class NarrowBuilderTest(ZulipTestCase):
                                                            self.example_email("cordelia")])
 
         term = dict(operator='group-pm-with', operand=self.example_email("othello"))
-        self._do_add_term_test(term, 'WHERE recipient_id IN (:recipient_id_1)')
+        self._do_add_term_test(term, 'WHERE recipient_id IN (%(recipient_id_1)s)')
 
     def test_add_term_using_group_pm_operator_not_the_same_user_as_operand_and_negated(
             self) -> None:  # NEGATED
@@ -269,24 +341,24 @@ class NarrowBuilderTest(ZulipTestCase):
     @override_settings(USING_PGROONGA=False)
     def test_add_term_using_search_operator(self) -> None:
         term = dict(operator='search', operand='"french fries"')
-        self._do_add_term_test(term, 'WHERE (lower(content) LIKE lower(:content_1) OR lower(subject) LIKE lower(:subject_1)) AND (search_tsvector @@ plainto_tsquery(:param_2, :param_3))')
+        self._do_add_term_test(term, 'WHERE (content ILIKE %(content_1)s OR subject ILIKE %(subject_1)s) AND (search_tsvector @@ plainto_tsquery(%(param_4)s, %(param_5)s))')
 
     @override_settings(USING_PGROONGA=False)
     def test_add_term_using_search_operator_and_negated(
             self) -> None:  # NEGATED
         term = dict(operator='search', operand='"french fries"', negated=True)
-        self._do_add_term_test(term, 'WHERE NOT (lower(content) LIKE lower(:content_1) OR lower(subject) LIKE lower(:subject_1)) AND NOT (search_tsvector @@ plainto_tsquery(:param_2, :param_3))')
+        self._do_add_term_test(term, 'WHERE NOT (content ILIKE %(content_1)s OR subject ILIKE %(subject_1)s) AND NOT (search_tsvector @@ plainto_tsquery(%(param_4)s, %(param_5)s))')
 
     @override_settings(USING_PGROONGA=True)
     def test_add_term_using_search_operator_pgroonga(self) -> None:
         term = dict(operator='search', operand='"french fries"')
-        self._do_add_term_test(term, 'WHERE search_pgroonga &@~ escape_html(:escape_html_1)')
+        self._do_add_term_test(term, 'WHERE search_pgroonga &@~ escape_html(%(escape_html_1)s)')
 
     @override_settings(USING_PGROONGA=True)
     def test_add_term_using_search_operator_and_negated_pgroonga(
             self) -> None:  # NEGATED
         term = dict(operator='search', operand='"french fries"', negated=True)
-        self._do_add_term_test(term, 'WHERE NOT (search_pgroonga &@~ escape_html(:escape_html_1))')
+        self._do_add_term_test(term, 'WHERE NOT (search_pgroonga &@~ escape_html(%(escape_html_1)s))')
 
     def test_add_term_using_has_operator_and_attachment_operand(self) -> None:
         term = dict(operator='has', operand='attachment')
@@ -322,26 +394,26 @@ class NarrowBuilderTest(ZulipTestCase):
     def test_add_term_using_in_operator(self) -> None:
         mute_stream(self.realm, self.user_profile, 'Verona')
         term = dict(operator='in', operand='home')
-        self._do_add_term_test(term, 'WHERE recipient_id NOT IN (:recipient_id_1)')
+        self._do_add_term_test(term, 'WHERE recipient_id NOT IN (%(recipient_id_1)s)')
 
     def test_add_term_using_in_operator_and_negated(self) -> None:
         # negated = True should not change anything
         mute_stream(self.realm, self.user_profile, 'Verona')
         term = dict(operator='in', operand='home', negated=True)
-        self._do_add_term_test(term, 'WHERE recipient_id NOT IN (:recipient_id_1)')
+        self._do_add_term_test(term, 'WHERE recipient_id NOT IN (%(recipient_id_1)s)')
 
     def test_add_term_using_in_operator_and_all_operand(self) -> None:
         mute_stream(self.realm, self.user_profile, 'Verona')
         term = dict(operator='in', operand='all')
         query = self._build_query(term)
-        self.assertEqual(str(query), 'SELECT id \nFROM zerver_message')
+        self.assertEqual(get_sqlalchemy_sql(query), 'SELECT id \nFROM zerver_message')
 
     def test_add_term_using_in_operator_all_operand_and_negated(self) -> None:
         # negated = True should not change anything
         mute_stream(self.realm, self.user_profile, 'Verona')
         term = dict(operator='in', operand='all', negated=True)
         query = self._build_query(term)
-        self.assertEqual(str(query), 'SELECT id \nFROM zerver_message')
+        self.assertEqual(get_sqlalchemy_sql(query), 'SELECT id \nFROM zerver_message')
 
     def test_add_term_using_in_operator_and_not_defined_operand(self) -> None:
         term = dict(operator='in', operand='not_defined')
@@ -350,15 +422,15 @@ class NarrowBuilderTest(ZulipTestCase):
     def test_add_term_using_near_operator(self) -> None:
         term = dict(operator='near', operand='operand')
         query = self._build_query(term)
-        self.assertEqual(str(query), 'SELECT id \nFROM zerver_message')
+        self.assertEqual(get_sqlalchemy_sql(query), 'SELECT id \nFROM zerver_message')
 
     def _do_add_term_test(self, term: Dict[str, Any], where_clause: str,
                           params: Optional[Dict[str, Any]]=None) -> None:
         query = self._build_query(term)
         if params is not None:
-            actual_params = query.compile().params
+            actual_params = get_sqlalchemy_query_params(query)
             self.assertEqual(actual_params, params)
-        self.assertIn(where_clause, str(query))
+        self.assertIn(where_clause, get_sqlalchemy_sql(query))
 
     def _build_query(self, term: Dict[str, Any]) -> Query:
         return self.builder.add_term(self.raw_query, term)
@@ -413,6 +485,8 @@ class NarrowLibraryTest(TestCase):
                                                     "operand": "starred"}]))
         self.assertFalse(is_web_public_compatible([{"operator": "is",
                                                     "operand": "private"}]))
+        self.assertTrue(is_web_public_compatible([{"operator": "streams",
+                                                   "operand": "public"}]))
         # Malformed input not allowed
         self.assertFalse(is_web_public_compatible([{"operator": "has"}]))
 
@@ -424,6 +498,18 @@ class IncludeHistoryTest(ZulipTestCase):
         # Negated stream searches should not include history.
         narrow = [
             dict(operator='stream', operand='public_stream', negated=True),
+        ]
+        self.assertFalse(ok_to_include_history(narrow, user_profile))
+
+        # streams:public searches should include history for non-guest members.
+        narrow = [
+            dict(operator='streams', operand='public'),
+        ]
+        self.assertTrue(ok_to_include_history(narrow, user_profile))
+
+        # Negated -streams:public searches should not include history.
+        narrow = [
+            dict(operator='streams', operand='public', negated=True),
         ]
         self.assertFalse(ok_to_include_history(narrow, user_profile))
 
@@ -468,6 +554,24 @@ class IncludeHistoryTest(ZulipTestCase):
         ]
         self.assertFalse(ok_to_include_history(narrow, user_profile))
 
+        # No point in searching history for is operator even if included with
+        # streams:public
+        narrow = [
+            dict(operator='streams', operand='public'),
+            dict(operator='is', operand='mentioned'),
+        ]
+        self.assertFalse(ok_to_include_history(narrow, user_profile))
+        narrow = [
+            dict(operator='streams', operand='public'),
+            dict(operator='is', operand='unread'),
+        ]
+        self.assertFalse(ok_to_include_history(narrow, user_profile))
+        narrow = [
+            dict(operator='streams', operand='public'),
+            dict(operator='is', operand='alerted'),
+        ]
+        self.assertFalse(ok_to_include_history(narrow, user_profile))
+
         # simple True case
         narrow = [
             dict(operator='stream', operand='public_stream'),
@@ -485,6 +589,12 @@ class IncludeHistoryTest(ZulipTestCase):
         guest_user_profile = self.example_user("polonius")
         # Using 'Cordelia' to compare between a guest and a normal user
         subscribed_user_profile = self.example_user("cordelia")
+
+        # streams:public searches should not include history for guest members.
+        narrow = [
+            dict(operator='streams', operand='public'),
+        ]
+        self.assertFalse(ok_to_include_history(narrow, guest_user_profile))
 
         # Guest user can't access public stream
         self.subscribe(subscribed_user_profile, 'public_stream_2')
@@ -920,6 +1030,9 @@ class GetOldMessagesTest(ZulipTestCase):
         payload = self.client_get("/json/messages", dict(post_params),
                                   **kwargs)
         self.assert_json_success(payload)
+        self.assertEqual(set(payload["Cache-Control"].split(", ")),
+                         {"must-revalidate", "no-store", "no-cache", "max-age=0"})
+
         result = ujson.loads(payload.content)
 
         self.assertIn("messages", result)
@@ -957,11 +1070,11 @@ class GetOldMessagesTest(ZulipTestCase):
         for message in result["messages"]:
             assert(message["id"] in message_ids)
 
-    def get_query_ids(self) -> Dict[str, int]:
+    def get_query_ids(self) -> Dict[str, Union[int, str]]:
         hamlet_user = self.example_user('hamlet')
         othello_user = self.example_user('othello')
 
-        query_ids = {}  # type: Dict[str, int]
+        query_ids = {}  # type: Dict[str, Union[int, str]]
 
         scotland_stream = get_stream('Scotland', hamlet_user.realm)
         query_ids['scotland_recipient'] = get_stream_recipient(scotland_stream.id).id
@@ -969,7 +1082,11 @@ class GetOldMessagesTest(ZulipTestCase):
         query_ids['othello_id'] = othello_user.id
         query_ids['hamlet_recipient'] = get_personal_recipient(hamlet_user.id).id
         query_ids['othello_recipient'] = get_personal_recipient(othello_user.id).id
-
+        recipients = Recipient.objects.filter(
+            type=Recipient.STREAM,
+            type_id__in=Stream.objects.filter(realm=hamlet_user.realm, invite_only=False),
+        ).values('id').order_by('id')
+        query_ids['public_streams_recipents'] = ", ".join(str(r['id']) for r in recipients)
         return query_ids
 
     def test_content_types(self) -> None:
@@ -1006,9 +1123,12 @@ class GetOldMessagesTest(ZulipTestCase):
 
         self.login(self.example_email("othello"))
         reaction_name = 'thumbs_up'
+        reaction_info = {
+            'emoji_name': reaction_name
+        }
 
-        url = '/json/messages/{}/emoji_reactions/{}'.format(message_id, reaction_name)
-        payload = self.client_put(url)
+        url = '/json/messages/{}/reactions'.format(message_id)
+        payload = self.client_post(url, reaction_info)
         self.assert_json_success(payload)
 
         self.login(self.example_email("hamlet"))
@@ -1068,11 +1188,11 @@ class GetOldMessagesTest(ZulipTestCase):
         """
         me = self.example_email('hamlet')
 
-        def dr_emails(dr: Union[str, List[Dict[str, Any]]]) -> str:
+        def dr_emails(dr: DisplayRecipientT) -> str:
             assert isinstance(dr, list)
             return ','.join(sorted(set([r['email'] for r in dr] + [me])))
 
-        def dr_ids(dr: Union[str, List[Dict[str, Any]]]) -> List[int]:
+        def dr_ids(dr: DisplayRecipientT) -> List[int]:
             assert isinstance(dr, list)
             return list(sorted(set([r['id'] for r in dr] + [self.example_user('hamlet').id])))
 
@@ -1283,14 +1403,17 @@ class GetOldMessagesTest(ZulipTestCase):
         messages = get_user_messages(self.example_user('hamlet'))
         stream_messages = [msg for msg in messages if msg.is_stream_message()]
         stream_name = get_display_recipient(stream_messages[0].recipient)
-        stream_id = stream_messages[0].recipient.id
+        assert isinstance(stream_name, str)
+        stream_id = get_stream(stream_name, stream_messages[0].get_realm()).id
+        stream_recipient_id = stream_messages[0].recipient.id
 
-        narrow = [dict(operator='stream', operand=stream_name)]
-        result = self.get_and_check_messages(dict(narrow=ujson.dumps(narrow)))
+        for operand in [stream_name, stream_id]:
+            narrow = [dict(operator='stream', operand=operand)]
+            result = self.get_and_check_messages(dict(narrow=ujson.dumps(narrow)))
 
-        for message in result["messages"]:
-            self.assertEqual(message["type"], "stream")
-            self.assertEqual(message["recipient_id"], stream_id)
+            for message in result["messages"]:
+                self.assertEqual(message["type"], "stream")
+                self.assertEqual(message["recipient_id"], stream_recipient_id)
 
     def test_get_visible_messages_with_narrow_stream(self) -> None:
         self.login(self.example_email('hamlet'))
@@ -2097,16 +2220,41 @@ class GetOldMessagesTest(ZulipTestCase):
             self.assert_json_error_contains(result,
                                             "Invalid narrow operator: unknown operator")
 
-    def test_non_string_narrow_operand_in_dict(self) -> None:
-        """
-        We expect search operands to be strings, not integers.
-        """
+    def test_invalid_narrow_operand_in_dict(self) -> None:
         self.login(self.example_email("hamlet"))
-        not_a_string = 42
-        narrow = [dict(operator='stream', operand=not_a_string)]
-        params = dict(anchor=0, num_before=0, num_after=0, narrow=ujson.dumps(narrow))
-        result = self.client_get("/json/messages", params)
-        self.assert_json_error_contains(result, 'elem["operand"] is not a string')
+
+        # str or int is required for sender, group-pm-with, stream
+        invalid_operands = [['1'], [2], None]
+        error_msg = 'elem["operand"] is not a string or integer'
+        for operand in ['sender', 'group-pm-with', 'stream']:
+            self.exercise_bad_narrow_operand_using_dict_api(operand, invalid_operands, error_msg)
+
+        # str or int list is required for pm-with operator
+        invalid_operands = [None]
+        error_msg = 'elem["operand"] is not a string or an integer list'
+        self.exercise_bad_narrow_operand_using_dict_api('pm-with', invalid_operands, error_msg)
+
+        invalid_operands = [['2']]
+        error_msg = 'elem["operand"][0] is not an integer'
+        self.exercise_bad_narrow_operand_using_dict_api('pm-with', invalid_operands, error_msg)
+
+        # For others only str is acceptable
+        invalid_operands = [2, None, [1]]
+        error_msg = 'elem["operand"] is not a string'
+        for operand in ['is', 'near', 'has', 'id']:
+            self.exercise_bad_narrow_operand_using_dict_api(operand, invalid_operands, error_msg)
+
+    # The exercise_bad_narrow_operand helper method uses legacy tuple format to
+    # test bad narrow, this method uses the current dict api format
+    def exercise_bad_narrow_operand_using_dict_api(self, operator: str,
+                                                   operands: Sequence[Any],
+                                                   error_msg: str) -> None:
+
+        for operand in operands:
+            narrow = [dict(operator=operator, operand=operand)]
+            params = dict(anchor=0, num_before=0, num_after=0, narrow=ujson.dumps(narrow))
+            result = self.client_get('/json/messages', params)
+            self.assert_json_error_contains(result, error_msg)
 
     def exercise_bad_narrow_operand(self, operator: str,
                                     operands: Sequence[Any],
@@ -2142,6 +2290,10 @@ class GetOldMessagesTest(ZulipTestCase):
         self.login(self.example_email("hamlet"))
         self.exercise_bad_narrow_operand("stream", ['non-existent stream'],
                                          "Invalid narrow operator: unknown stream")
+
+        non_existing_stream_id = 1232891381239
+        self.exercise_bad_narrow_operand_using_dict_api('stream', [non_existing_stream_id],
+                                                        'Invalid narrow operator: unknown stream')
 
     def test_bad_narrow_nonexistent_email(self) -> None:
         self.login(self.example_email("hamlet"))
@@ -2436,6 +2588,13 @@ class GetOldMessagesTest(ZulipTestCase):
         muting_conditions = exclude_muting_conditions(user_profile, narrow)
         self.assertEqual(muting_conditions, [])
 
+        # Also test that passing stream ID works
+        narrow = [
+            dict(operator='stream', operand=get_stream('Scotland', realm).id)
+        ]
+        muting_conditions = exclude_muting_conditions(user_profile, narrow)
+        self.assertEqual(muting_conditions, [])
+
         # Ok, now set up our muted topics to include a topic relevant to our narrow.
         muted_topics = [
             ['Scotland', 'golf'],
@@ -2451,12 +2610,13 @@ class GetOldMessagesTest(ZulipTestCase):
         muting_conditions = exclude_muting_conditions(user_profile, narrow)
         query = select([column("id").label("message_id")], None, table("zerver_message"))
         query = query.where(*muting_conditions)
-        expected_query = '''
-            SELECT id AS message_id
-            FROM zerver_message
-            WHERE NOT (recipient_id = :recipient_id_1 AND upper(subject) = upper(:param_1))
-            '''
-        self.assertEqual(fix_ws(query), fix_ws(expected_query))
+        expected_query = '''\
+SELECT id AS message_id \n\
+FROM zerver_message \n\
+WHERE NOT (recipient_id = %(recipient_id_1)s AND upper(subject) = upper(%(param_1)s))\
+'''
+
+        self.assertEqual(get_sqlalchemy_sql(query), expected_query)
         params = get_sqlalchemy_query_params(query)
 
         self.assertEqual(params['recipient_id_1'], get_recipient_id_for_stream_name(realm, 'Scotland'))
@@ -2474,14 +2634,15 @@ class GetOldMessagesTest(ZulipTestCase):
         query = select([column("id")], None, table("zerver_message"))
         query = query.where(and_(*muting_conditions))
 
-        expected_query = '''
-            SELECT id
-            FROM zerver_message
-            WHERE recipient_id NOT IN (:recipient_id_1)
-            AND NOT
-               (recipient_id = :recipient_id_2 AND upper(subject) = upper(:param_1) OR
-                recipient_id = :recipient_id_3 AND upper(subject) = upper(:param_2))'''
-        self.assertEqual(fix_ws(query), fix_ws(expected_query))
+        expected_query = '''\
+SELECT id \n\
+FROM zerver_message \n\
+WHERE recipient_id NOT IN (%(recipient_id_1)s) \
+AND NOT \
+(recipient_id = %(recipient_id_2)s AND upper(subject) = upper(%(param_1)s) OR \
+recipient_id = %(recipient_id_3)s AND upper(subject) = upper(%(param_2)s))\
+'''
+        self.assertEqual(get_sqlalchemy_sql(query), expected_query)
         params = get_sqlalchemy_query_params(query)
         self.assertEqual(params['recipient_id_1'], get_recipient_id_for_stream_name(realm, 'Verona'))
         self.assertEqual(params['recipient_id_2'], get_recipient_id_for_stream_name(realm, 'Scotland'))
@@ -2555,6 +2716,18 @@ class GetOldMessagesTest(ZulipTestCase):
                                               'narrow': '[["stream", "Scotland"]]'},
                                              sql)
 
+        sql_template = 'SELECT anon_1.message_id \nFROM (SELECT id AS message_id \nFROM zerver_message \nWHERE recipient_id IN ({public_streams_recipents}) ORDER BY zerver_message.id ASC \n LIMIT 10) AS anon_1 ORDER BY message_id ASC'
+        sql = sql_template.format(**query_ids)
+        self.common_check_get_messages_query({'anchor': 0, 'num_before': 0, 'num_after': 9,
+                                              'narrow': '[["streams", "public"]]'},
+                                             sql)
+
+        sql_template = 'SELECT anon_1.message_id, anon_1.flags \nFROM (SELECT message_id, flags \nFROM zerver_usermessage JOIN zerver_message ON zerver_usermessage.message_id = zerver_message.id \nWHERE user_profile_id = {hamlet_id} AND recipient_id NOT IN ({public_streams_recipents}) ORDER BY message_id ASC \n LIMIT 10) AS anon_1 ORDER BY message_id ASC'
+        sql = sql_template.format(**query_ids)
+        self.common_check_get_messages_query({'anchor': 0, 'num_before': 0, 'num_after': 9,
+                                              'narrow': '[{"operator":"streams", "operand":"public", "negated": true}]'},
+                                             sql)
+
         sql_template = "SELECT anon_1.message_id, anon_1.flags \nFROM (SELECT message_id, flags \nFROM zerver_usermessage JOIN zerver_message ON zerver_usermessage.message_id = zerver_message.id \nWHERE user_profile_id = {hamlet_id} AND upper(subject) = upper('blah') ORDER BY message_id ASC \n LIMIT 10) AS anon_1 ORDER BY message_id ASC"
         sql = sql_template.format(**query_ids)
         self.common_check_get_messages_query({'anchor': 0, 'num_before': 0, 'num_after': 9,
@@ -2584,19 +2757,49 @@ class GetOldMessagesTest(ZulipTestCase):
     def test_get_messages_with_search_queries(self) -> None:
         query_ids = self.get_query_ids()
 
-        sql_template = "SELECT anon_1.message_id, anon_1.flags, anon_1.subject, anon_1.rendered_content, anon_1.content_matches, anon_1.topic_matches \nFROM (SELECT message_id, flags, subject, rendered_content, ts_match_locs_array('zulip.english_us_search', rendered_content, plainto_tsquery('zulip.english_us_search', 'jumping')) AS content_matches, ts_match_locs_array('zulip.english_us_search', escape_html(subject), plainto_tsquery('zulip.english_us_search', 'jumping')) AS topic_matches \nFROM zerver_usermessage JOIN zerver_message ON zerver_usermessage.message_id = zerver_message.id \nWHERE user_profile_id = {hamlet_id} AND (search_tsvector @@ plainto_tsquery('zulip.english_us_search', 'jumping')) ORDER BY message_id ASC \n LIMIT 10) AS anon_1 ORDER BY message_id ASC"  # type: str
+        sql_template = """\
+SELECT anon_1.message_id, anon_1.flags, anon_1.subject, anon_1.rendered_content, anon_1.content_matches, anon_1.topic_matches \n\
+FROM (SELECT message_id, flags, subject, rendered_content, array((SELECT ARRAY[sum(length(anon_3) - 11) OVER (ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) + 11, strpos(anon_3, '</ts-match>') - 1] AS anon_2 \n\
+FROM unnest(string_to_array(ts_headline('zulip.english_us_search', rendered_content, plainto_tsquery('zulip.english_us_search', 'jumping'), 'HighlightAll = TRUE, StartSel = <ts-match>, StopSel = </ts-match>'), '<ts-match>')) AS anon_3 \n\
+ LIMIT ALL OFFSET 1)) AS content_matches, array((SELECT ARRAY[sum(length(anon_5) - 11) OVER (ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) + 11, strpos(anon_5, '</ts-match>') - 1] AS anon_4 \n\
+FROM unnest(string_to_array(ts_headline('zulip.english_us_search', escape_html(subject), plainto_tsquery('zulip.english_us_search', 'jumping'), 'HighlightAll = TRUE, StartSel = <ts-match>, StopSel = </ts-match>'), '<ts-match>')) AS anon_5 \n\
+ LIMIT ALL OFFSET 1)) AS topic_matches \n\
+FROM zerver_usermessage JOIN zerver_message ON zerver_usermessage.message_id = zerver_message.id \n\
+WHERE user_profile_id = {hamlet_id} AND (search_tsvector @@ plainto_tsquery('zulip.english_us_search', 'jumping')) ORDER BY message_id ASC \n\
+ LIMIT 10) AS anon_1 ORDER BY message_id ASC\
+"""
         sql = sql_template.format(**query_ids)
         self.common_check_get_messages_query({'anchor': 0, 'num_before': 0, 'num_after': 9,
                                               'narrow': '[["search", "jumping"]]'},
                                              sql)
 
-        sql_template = "SELECT anon_1.message_id, anon_1.subject, anon_1.rendered_content, anon_1.content_matches, anon_1.topic_matches \nFROM (SELECT id AS message_id, subject, rendered_content, ts_match_locs_array('zulip.english_us_search', rendered_content, plainto_tsquery('zulip.english_us_search', 'jumping')) AS content_matches, ts_match_locs_array('zulip.english_us_search', escape_html(subject), plainto_tsquery('zulip.english_us_search', 'jumping')) AS topic_matches \nFROM zerver_message \nWHERE recipient_id = {scotland_recipient} AND (search_tsvector @@ plainto_tsquery('zulip.english_us_search', 'jumping')) ORDER BY zerver_message.id ASC \n LIMIT 10) AS anon_1 ORDER BY message_id ASC"
+        sql_template = """\
+SELECT anon_1.message_id, anon_1.subject, anon_1.rendered_content, anon_1.content_matches, anon_1.topic_matches \n\
+FROM (SELECT id AS message_id, subject, rendered_content, array((SELECT ARRAY[sum(length(anon_3) - 11) OVER (ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) + 11, strpos(anon_3, '</ts-match>') - 1] AS anon_2 \n\
+FROM unnest(string_to_array(ts_headline('zulip.english_us_search', rendered_content, plainto_tsquery('zulip.english_us_search', 'jumping'), 'HighlightAll = TRUE, StartSel = <ts-match>, StopSel = </ts-match>'), '<ts-match>')) AS anon_3 \n\
+ LIMIT ALL OFFSET 1)) AS content_matches, array((SELECT ARRAY[sum(length(anon_5) - 11) OVER (ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) + 11, strpos(anon_5, '</ts-match>') - 1] AS anon_4 \n\
+FROM unnest(string_to_array(ts_headline('zulip.english_us_search', escape_html(subject), plainto_tsquery('zulip.english_us_search', 'jumping'), 'HighlightAll = TRUE, StartSel = <ts-match>, StopSel = </ts-match>'), '<ts-match>')) AS anon_5 \n\
+ LIMIT ALL OFFSET 1)) AS topic_matches \n\
+FROM zerver_message \n\
+WHERE recipient_id = {scotland_recipient} AND (search_tsvector @@ plainto_tsquery('zulip.english_us_search', 'jumping')) ORDER BY zerver_message.id ASC \n\
+ LIMIT 10) AS anon_1 ORDER BY message_id ASC\
+"""
         sql = sql_template.format(**query_ids)
         self.common_check_get_messages_query({'anchor': 0, 'num_before': 0, 'num_after': 9,
                                               'narrow': '[["stream", "Scotland"], ["search", "jumping"]]'},
                                              sql)
 
-        sql_template = 'SELECT anon_1.message_id, anon_1.flags, anon_1.subject, anon_1.rendered_content, anon_1.content_matches, anon_1.topic_matches \nFROM (SELECT message_id, flags, subject, rendered_content, ts_match_locs_array(\'zulip.english_us_search\', rendered_content, plainto_tsquery(\'zulip.english_us_search\', \'"jumping" quickly\')) AS content_matches, ts_match_locs_array(\'zulip.english_us_search\', escape_html(subject), plainto_tsquery(\'zulip.english_us_search\', \'"jumping" quickly\')) AS topic_matches \nFROM zerver_usermessage JOIN zerver_message ON zerver_usermessage.message_id = zerver_message.id \nWHERE user_profile_id = {hamlet_id} AND (content ILIKE \'%jumping%\' OR subject ILIKE \'%jumping%\') AND (search_tsvector @@ plainto_tsquery(\'zulip.english_us_search\', \'"jumping" quickly\')) ORDER BY message_id ASC \n LIMIT 10) AS anon_1 ORDER BY message_id ASC'
+        sql_template = """\
+SELECT anon_1.message_id, anon_1.flags, anon_1.subject, anon_1.rendered_content, anon_1.content_matches, anon_1.topic_matches \n\
+FROM (SELECT message_id, flags, subject, rendered_content, array((SELECT ARRAY[sum(length(anon_3) - 11) OVER (ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) + 11, strpos(anon_3, '</ts-match>') - 1] AS anon_2 \n\
+FROM unnest(string_to_array(ts_headline('zulip.english_us_search', rendered_content, plainto_tsquery('zulip.english_us_search', '"jumping" quickly'), 'HighlightAll = TRUE, StartSel = <ts-match>, StopSel = </ts-match>'), '<ts-match>')) AS anon_3 \n\
+ LIMIT ALL OFFSET 1)) AS content_matches, array((SELECT ARRAY[sum(length(anon_5) - 11) OVER (ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) + 11, strpos(anon_5, '</ts-match>') - 1] AS anon_4 \n\
+FROM unnest(string_to_array(ts_headline('zulip.english_us_search', escape_html(subject), plainto_tsquery('zulip.english_us_search', '"jumping" quickly'), 'HighlightAll = TRUE, StartSel = <ts-match>, StopSel = </ts-match>'), '<ts-match>')) AS anon_5 \n\
+ LIMIT ALL OFFSET 1)) AS topic_matches \n\
+FROM zerver_usermessage JOIN zerver_message ON zerver_usermessage.message_id = zerver_message.id \n\
+WHERE user_profile_id = {hamlet_id} AND (content ILIKE '%jumping%' OR subject ILIKE '%jumping%') AND (search_tsvector @@ plainto_tsquery('zulip.english_us_search', '"jumping" quickly')) ORDER BY message_id ASC \n\
+ LIMIT 10) AS anon_1 ORDER BY message_id ASC\
+"""
         sql = sql_template.format(**query_ids)
         self.common_check_get_messages_query({'anchor': 0, 'num_before': 0, 'num_after': 9,
                                               'narrow': '[["search", "\\"jumping\\" quickly"]]'},

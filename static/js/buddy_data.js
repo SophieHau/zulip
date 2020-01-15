@@ -1,7 +1,3 @@
-var buddy_data = (function () {
-
-var exports = {};
-
 /*
 
    This is the main model code for building the buddy list.
@@ -13,14 +9,7 @@ var exports = {};
 
 exports.max_size_before_shrinking = 600;
 
-var presence_descriptions = {
-    away_me: 'is unavailable',
-    away_them: 'is unavailable',
-    active: 'is active',
-    idle: 'is not active',
-};
-
-var fade_config = {
+const fade_config = {
     get_user_id: function (item) {
         return item.user_id;
     },
@@ -33,7 +22,7 @@ var fade_config = {
 };
 
 exports.get_user_circle_class = function (user_id) {
-    var status = exports.buddy_status(user_id);
+    const status = exports.buddy_status(user_id);
 
     switch (status) {
     case 'active':
@@ -48,13 +37,29 @@ exports.get_user_circle_class = function (user_id) {
     }
 };
 
+exports.status_description = function (user_id) {
+    const status = exports.buddy_status(user_id);
+
+    switch (status) {
+    case 'active':
+        return i18n.t('Active');
+    case 'idle':
+        return i18n.t('Idle');
+    case 'away_them':
+    case 'away_me':
+        return i18n.t('Unavailable');
+    default:
+        return i18n.t('Offline');
+    }
+};
+
 exports.level = function (user_id) {
     if (people.is_my_user_id(user_id)) {
         // Always put current user at the top.
         return 0;
     }
 
-    var status = exports.buddy_status(user_id);
+    const status = exports.buddy_status(user_id);
 
     switch (status) {
     case 'active':
@@ -82,19 +87,19 @@ exports.buddy_status = function (user_id) {
 };
 
 exports.compare_function = function (a, b) {
-    var level_a = exports.level(a);
-    var level_b = exports.level(b);
-    var diff = level_a - level_b;
+    const level_a = exports.level(a);
+    const level_b = exports.level(b);
+    const diff = level_a - level_b;
     if (diff !== 0) {
         return diff;
     }
 
     // Sort equivalent PM names alphabetically
-    var person_a = people.get_person_from_user_id(a);
-    var person_b = people.get_person_from_user_id(b);
+    const person_a = people.get_person_from_user_id(a);
+    const person_b = people.get_person_from_user_id(b);
 
-    var full_name_a = person_a ? person_a.full_name : '';
-    var full_name_b = person_b ? person_b.full_name : '';
+    const full_name_a = person_a ? person_a.full_name : '';
+    const full_name_b = person_b ? person_b.full_name : '';
 
     return util.strcmp(full_name_a, full_name_b);
 };
@@ -112,16 +117,16 @@ function filter_user_ids(filter_text, user_ids) {
 
     user_ids = _.reject(user_ids, people.is_my_user_id);
 
-    var search_terms = filter_text.toLowerCase().split(/[|,]+/);
+    let search_terms = filter_text.toLowerCase().split(/[|,]+/);
     search_terms = _.map(search_terms, function (s) {
         return s.trim();
     });
 
-    var persons = _.map(user_ids, function (user_id) {
+    const persons = _.map(user_ids, function (user_id) {
         return people.get_person_from_user_id(user_id);
     });
 
-    var user_id_dict = people.filter_people_by_search_terms(persons, search_terms);
+    const user_id_dict = people.filter_people_by_search_terms(persons, search_terms);
     return user_id_dict.keys();
 }
 
@@ -151,9 +156,9 @@ exports.my_user_status = function (user_id) {
 };
 
 exports.user_last_seen_time_status = function (user_id) {
-    var status = presence.get_status(user_id);
+    const status = presence.get_status(user_id);
     if (status === "active") {
-        return i18n.t("Online now");
+        return i18n.t("Active now");
     }
 
     if (page_params.realm_is_zephyr_mirror_realm) {
@@ -167,40 +172,18 @@ exports.user_last_seen_time_status = function (user_id) {
     // may have queries on presence that go back only N weeks).
     //
     // We give the somewhat vague status of "Unknown" for these users.
-    var last_active_date = presence.last_active_date(user_id);
+    const last_active_date = presence.last_active_date(user_id);
     if (last_active_date === undefined) {
         return i18n.t("More than 2 weeks ago");
     }
     return timerender.last_seen_status_from_date(last_active_date.clone());
 };
 
-exports.user_title = function (user_id) {
-    var buddy_status = exports.buddy_status(user_id);
-    var type_desc = presence_descriptions[buddy_status];
-    var status_text = user_status.get_status_text(user_id);
-    var person = people.get_person_from_user_id(user_id);
-    var title;
-
-    if (status_text) {
-        // The user-set status, like "out to lunch",
-        // is more important than actual presence.
-        title = status_text;
-    } else {
-        title = person.full_name;
-        if (type_desc) {
-            // example: "Cordelia Lear is unavailable"
-            title += ' ' + type_desc;
-        }
-    }
-
-    return title;
-};
-
 exports.info_for = function (user_id) {
-    var user_circle_class = exports.get_user_circle_class(user_id);
-    var person = people.get_person_from_user_id(user_id);
-    var my_user_status = exports.my_user_status(user_id);
-    var title = exports.user_title(user_id);
+    const user_circle_class = exports.get_user_circle_class(user_id);
+    const person = people.get_person_from_user_id(user_id);
+    const my_user_status = exports.my_user_status(user_id);
+    const user_circle_status = exports.status_description(user_id);
 
     return {
         href: hash_util.pm_with_uri(person.email),
@@ -210,12 +193,81 @@ exports.info_for = function (user_id) {
         is_current_user: people.is_my_user_id(user_id),
         num_unread: get_num_unread(user_id),
         user_circle_class: user_circle_class,
-        title: title,
+        user_circle_status: user_circle_status,
+    };
+};
+
+function get_last_seen(active_status, last_seen) {
+    if (active_status === 'active') {
+        return last_seen;
+    }
+
+    const last_seen_text = i18n.t('Last active: __last_seen__', {last_seen: last_seen});
+    return last_seen_text;
+}
+
+exports.get_title_data = function (user_ids_string, is_group) {
+    if (is_group === true) {
+        // For groups, just return a string with recipient names.
+        return {
+            first_line: people.get_recipients(user_ids_string),
+            second_line: '',
+            third_line: '',
+        };
+    }
+
+    // Since it's not a group, user_ids_string is a single user ID.
+    const user_id = parseInt(user_ids_string, 10);
+    const person = people.get_person_from_user_id(user_id);
+
+    if (person.is_bot) {
+        // Bot has an owner.
+        if (person.bot_owner_id !== null) {
+            person.bot_owner_full_name = people.get_person_from_user_id(
+                person.bot_owner_id).full_name;
+
+            const bot_owner_name = i18n.t('Owner: __name__', {name: person.bot_owner_full_name});
+
+            return {
+                first_line: person.full_name,
+                second_line: bot_owner_name,
+                third_line: '',
+            };
+        }
+
+        // Bot does not have an owner.
+        return {
+            first_line: person.full_name,
+            second_line: '',
+            third_line: '',
+        };
+
+    }
+
+    // For buddy list and individual PMS.  Since is_group=False, it's
+    // a single, human, user.
+    const active_status = presence.get_status(user_id);
+    const last_seen = exports.user_last_seen_time_status(user_id);
+
+    // Users has a status.
+    if (user_status.get_status_text(user_id)) {
+        return {
+            first_line: person.full_name,
+            second_line: user_status.get_status_text(user_id),
+            third_line: get_last_seen(active_status, last_seen),
+        };
+    }
+
+    // Users does not have a status.
+    return {
+        first_line: person.full_name,
+        second_line: get_last_seen(active_status, last_seen),
+        third_line: '',
     };
 };
 
 exports.get_item = function (user_id) {
-    var info = exports.info_for(user_id);
+    const info = exports.info_for(user_id);
     compose_fade.update_user_info([info], fade_config);
     return info;
 };
@@ -246,7 +298,7 @@ function maybe_shrink_list(user_ids, filter_text) {
 }
 
 exports.get_filtered_and_sorted_user_ids = function (filter_text) {
-    var user_ids;
+    let user_ids;
 
     if (filter_text) {
         // If there's a filter, select from all users, not just those
@@ -260,7 +312,7 @@ exports.get_filtered_and_sorted_user_ids = function (filter_text) {
     }
 
     user_ids = _.filter(user_ids, function (user_id) {
-        var person = people.get_person_from_user_id(user_id);
+        const person = people.get_person_from_user_id(user_id);
 
         if (person) {
             // if the user is bot, do not show in presence data.
@@ -278,7 +330,7 @@ exports.get_filtered_and_sorted_user_ids = function (filter_text) {
 };
 
 exports.get_items_for_users = function (user_ids) {
-    var user_info = _.map(user_ids, exports.info_for).filter(function (person) {
+    const user_info = _.map(user_ids, exports.info_for).filter(function (person) {
         // filtered bots and yourself are set to "undefined" in the `info_for`
         // function.
         return typeof person !== "undefined";
@@ -290,9 +342,9 @@ exports.get_items_for_users = function (user_ids) {
 };
 
 exports.huddle_fraction_present = function (huddle) {
-    var user_ids = huddle.split(',');
+    const user_ids = huddle.split(',');
 
-    var num_present = 0;
+    let num_present = 0;
     _.each(user_ids, function (user_id) {
         if (presence.is_active(user_id)) {
             num_present += 1;
@@ -304,13 +356,7 @@ exports.huddle_fraction_present = function (huddle) {
     } else if (num_present !== 0) {
         return 0.5;
     }
-    return false;
+    return;
 };
 
-return exports;
-
-}());
-if (typeof module !== 'undefined') {
-    module.exports = buddy_data;
-}
-window.buddy_data = buddy_data;
+window.buddy_data = exports;

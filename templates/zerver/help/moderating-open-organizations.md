@@ -6,10 +6,13 @@ Moderation is a big part of making an open community work.
 
 ## Prevention
 
+Zulip has many features designed to simplify moderation:
+
 * [Disallow disposable email addresses](/help/allow-anyone-to-join-without-an-invitation)
   or [require users to log in via GitHub](/help/configure-authentication-methods).
 * Restrict who can [create streams](/help/configure-who-can-create-streams),
-  [create bots](/help/restrict-bot-creation) or
+  [create bots](/help/restrict-bot-creation), [send private
+  messages](/help/restrict-private-messages), or
   [add custom emoji](/help/only-allow-admins-to-add-emoji).
 * Link to a code of conduct in your
   [organization description](/help/create-your-organization-profile)
@@ -26,6 +29,8 @@ Moderation is a big part of making an open community work.
 
 * [Ban (deactivate) users](/help/deactivate-or-reactivate-a-user) acting in
   bad faith. You can reactivate them later if they repent.
+* Use the `streams:public sender:user@example.com`
+  [search operators](/help/search-for-messages) to find all messages sent by a user.
 * Delete messages, [delete streams](/help/delete-a-stream), and
   [unsubscribe users from streams](/help/add-or-remove-users-from-a-stream).
 * [Rename topics](/help/rename-a-topic).

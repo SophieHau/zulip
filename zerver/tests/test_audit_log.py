@@ -1,21 +1,31 @@
-
 from django.utils.timezone import now as timezone_now
 
 from zerver.lib.actions import do_create_user, do_deactivate_user, \
     do_activate_user, do_reactivate_user, do_change_password, \
     do_change_user_delivery_email, do_change_avatar_fields, do_change_bot_owner, \
     do_regenerate_api_key, do_change_tos_version, \
-    bulk_add_subscriptions, bulk_remove_subscriptions, get_streams_traffic
+    bulk_add_subscriptions, bulk_remove_subscriptions, get_streams_traffic, \
+    do_change_is_admin, do_change_is_guest, do_deactivate_realm, do_reactivate_realm
 from zerver.lib.test_classes import ZulipTestCase
-from zerver.models import RealmAuditLog, get_client, get_realm
+from zerver.models import RealmAuditLog, get_client, get_realm, UserProfile
 from analytics.models import StreamCount
 
 from datetime import timedelta
 from django.contrib.auth.password_validation import validate_password
 
+from typing import Any, Dict
 import ujson
 
 class TestRealmAuditLog(ZulipTestCase):
+    def check_role_count_schema(self, role_counts: Dict[str, Any]) -> None:
+        for key in [UserProfile.ROLE_REALM_ADMINISTRATOR,
+                    UserProfile.ROLE_MEMBER,
+                    UserProfile.ROLE_GUEST]:
+            # str(key) since json keys are always strings, and ujson.dumps will have converted
+            # the UserProfile.role values into strings
+            self.assertTrue(isinstance(role_counts[RealmAuditLog.ROLE_COUNT_HUMANS][str(key)], int))
+        self.assertTrue(isinstance(role_counts[RealmAuditLog.ROLE_COUNT_BOTS], int))
+
     def test_user_activation(self) -> None:
         realm = get_realm('zulip')
         now = timezone_now()
@@ -29,8 +39,32 @@ class TestRealmAuditLog(ZulipTestCase):
             realm=realm, acting_user=None, modified_user=user, modified_stream=None,
             event_time__gte=now, event_time__lte=now+timedelta(minutes=60))
             .order_by('event_time').values_list('event_type', flat=True))
-        self.assertEqual(event_types, [RealmAuditLog.USER_CREATED, RealmAuditLog.USER_DEACTIVATED, RealmAuditLog.USER_ACTIVATED,
-                                       RealmAuditLog.USER_DEACTIVATED, RealmAuditLog.USER_REACTIVATED])
+        self.assertEqual(event_types, [RealmAuditLog.USER_CREATED, RealmAuditLog.USER_DEACTIVATED,
+                                       RealmAuditLog.USER_ACTIVATED, RealmAuditLog.USER_DEACTIVATED,
+                                       RealmAuditLog.USER_REACTIVATED])
+        for event in RealmAuditLog.objects.filter(
+                realm=realm, acting_user=None, modified_user=user, modified_stream=None,
+                event_time__gte=now, event_time__lte=now+timedelta(minutes=60)):
+            extra_data = ujson.loads(event.extra_data)
+            self.check_role_count_schema(extra_data[RealmAuditLog.ROLE_COUNT])
+            self.assertNotIn(RealmAuditLog.OLD_VALUE, extra_data)
+
+    def test_change_role(self) -> None:
+        realm = get_realm('zulip')
+        now = timezone_now()
+        user_profile = self.example_user("hamlet")
+        do_change_is_admin(user_profile, True)
+        do_change_is_admin(user_profile, False)
+        do_change_is_guest(user_profile, True)
+        do_change_is_guest(user_profile, False)
+        for event in RealmAuditLog.objects.filter(
+                event_type=RealmAuditLog.USER_ROLE_CHANGED,
+                realm=realm, modified_user=user_profile,
+                event_time__gte=now, event_time__lte=now+timedelta(minutes=60)):
+            extra_data = ujson.loads(event.extra_data)
+            self.check_role_count_schema(extra_data[RealmAuditLog.ROLE_COUNT])
+            self.assertIn(RealmAuditLog.OLD_VALUE, extra_data)
+            self.assertIn(RealmAuditLog.NEW_VALUE, extra_data)
 
     def test_change_password(self) -> None:
         now = timezone_now()
@@ -52,7 +86,7 @@ class TestRealmAuditLog(ZulipTestCase):
 
         # Test the RealmAuditLog stringification
         audit_entry = RealmAuditLog.objects.get(event_type=RealmAuditLog.USER_EMAIL_CHANGED, event_time__gte=now)
-        self.assertTrue(str(audit_entry).startswith("<RealmAuditLog: <UserProfile: test@example.com %s> user_email_changed " % (user.realm,)))
+        self.assertTrue(str(audit_entry).startswith("<RealmAuditLog: <UserProfile: test@example.com %s> %s " % (user.realm, RealmAuditLog.USER_EMAIL_CHANGED)))
 
     def test_change_avatar_source(self) -> None:
         now = timezone_now()
@@ -139,3 +173,15 @@ class TestRealmAuditLog(ZulipTestCase):
         self.assertEqual(subscription_deactivation_logs.count(), 1)
         self.assertEqual(subscription_deactivation_logs[0].modified_stream.id, stream[0].id)
         self.assertEqual(subscription_deactivation_logs[0].modified_user, user[0])
+
+    def test_realm_activation(self) -> None:
+        realm = get_realm('zulip')
+        do_deactivate_realm(realm)
+        log_entry = RealmAuditLog.objects.get(realm=realm, event_type=RealmAuditLog.REALM_DEACTIVATED)
+        extra_data = ujson.loads(log_entry.extra_data)
+        self.check_role_count_schema(extra_data[RealmAuditLog.ROLE_COUNT])
+
+        do_reactivate_realm(realm)
+        log_entry = RealmAuditLog.objects.get(realm=realm, event_type=RealmAuditLog.REALM_REACTIVATED)
+        extra_data = ujson.loads(log_entry.extra_data)
+        self.check_role_count_schema(extra_data[RealmAuditLog.ROLE_COUNT])

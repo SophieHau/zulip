@@ -1,4 +1,3 @@
-
 import datetime
 import ujson
 import zlib
@@ -19,6 +18,8 @@ from zerver.lib.cache import (
     to_dict_cache_key,
     to_dict_cache_key_id,
 )
+from zerver.lib.display_recipient import UserDisplayRecipient, DisplayRecipientT, \
+    bulk_fetch_display_recipients
 from zerver.lib.request import JsonableError
 from zerver.lib.stream_subscription import (
     get_stream_subscriptions_for_user,
@@ -51,8 +52,8 @@ from zerver.models import (
     get_usermessage_by_message_id,
 )
 
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Sequence
-from mypy_extensions import TypedDict
+from typing import Any, Dict, List, Optional, Set, Tuple, Sequence
+from typing_extensions import TypedDict
 
 RealmAlertWords = Dict[int, List[str]]
 
@@ -89,13 +90,14 @@ def messages_for_ids(message_ids: List[int],
     cache_transformer = MessageDict.build_dict_from_raw_db_row
     id_fetcher = lambda row: row['id']
 
-    message_dicts = generic_bulk_cached_fetch(to_dict_cache_key_id,
-                                              MessageDict.get_raw_db_rows,
-                                              message_ids,
-                                              id_fetcher=id_fetcher,
-                                              cache_transformer=cache_transformer,
-                                              extractor=extract_message_dict,
-                                              setter=stringify_message_dict)
+    message_dicts = generic_bulk_cached_fetch(
+        to_dict_cache_key_id,
+        MessageDict.get_raw_db_rows,
+        message_ids,
+        id_fetcher=id_fetcher,
+        cache_transformer=cache_transformer,
+        extractor=extract_message_dict,
+        setter=stringify_message_dict)
 
     message_list = []  # type: List[Dict[str, Any]]
 
@@ -182,22 +184,23 @@ class MessageDict:
         processor.
         '''
         MessageDict.bulk_hydrate_sender_info([obj])
-        MessageDict.hydrate_recipient_info(obj)
+        MessageDict.bulk_hydrate_recipient_info([obj])
 
         return obj
 
     @staticmethod
     def post_process_dicts(objs: List[Dict[str, Any]], apply_markdown: bool, client_gravatar: bool) -> None:
         MessageDict.bulk_hydrate_sender_info(objs)
+        MessageDict.bulk_hydrate_recipient_info(objs)
 
         for obj in objs:
-            MessageDict.hydrate_recipient_info(obj)
             MessageDict.finalize_payload(obj, apply_markdown, client_gravatar)
 
     @staticmethod
     def finalize_payload(obj: Dict[str, Any],
                          apply_markdown: bool,
-                         client_gravatar: bool) -> None:
+                         client_gravatar: bool,
+                         keep_rendered_content: bool=False) -> None:
         MessageDict.set_sender_avatar(obj, client_gravatar)
         if apply_markdown:
             obj['content_type'] = 'text/html'
@@ -205,12 +208,13 @@ class MessageDict:
         else:
             obj['content_type'] = 'text/x-markdown'
 
-        del obj['rendered_content']
+        if not keep_rendered_content:
+            del obj['rendered_content']
         del obj['sender_realm_id']
         del obj['sender_avatar_source']
+        del obj['sender_delivery_email']
         del obj['sender_avatar_version']
 
-        del obj['raw_display_recipient']
         del obj['recipient_type']
         del obj['recipient_type_id']
         del obj['sender_is_mirror_dummy']
@@ -229,7 +233,7 @@ class MessageDict:
             edit_history = message.edit_history,
             content = message.content,
             topic_name = message.topic_name(),
-            pub_date = message.pub_date,
+            date_sent = message.date_sent,
             rendered_content = message.rendered_content,
             rendered_content_version = message.rendered_content_version,
             sender_id = message.sender.id,
@@ -249,7 +253,7 @@ class MessageDict:
         fields = [
             'id',
             DB_TOPIC_NAME,
-            'pub_date',
+            'date_sent',
             'last_edit_time',
             'edit_history',
             'content',
@@ -283,7 +287,7 @@ class MessageDict:
             edit_history = row['edit_history'],
             content = row['content'],
             topic_name = row[DB_TOPIC_NAME],
-            pub_date = row['pub_date'],
+            date_sent = row['date_sent'],
             rendered_content = row['rendered_content'],
             rendered_content_version = row['rendered_content_version'],
             sender_id = row['sender_id'],
@@ -304,7 +308,7 @@ class MessageDict:
             edit_history: Optional[str],
             content: str,
             topic_name: str,
-            pub_date: datetime.datetime,
+            date_sent: datetime.datetime,
             rendered_content: Optional[str],
             rendered_content_version: Optional[int],
             sender_id: int,
@@ -324,19 +328,26 @@ class MessageDict:
             recipient_type_id = recipient_type_id,
             recipient_type    = recipient_type,
             recipient_id      = recipient_id,
-            timestamp         = datetime_to_timestamp(pub_date),
+            timestamp         = datetime_to_timestamp(date_sent),
             client            = sending_client_name)
 
         obj[TOPIC_NAME] = topic_name
         obj['sender_realm_id'] = sender_realm_id
 
-        obj['raw_display_recipient'] = get_display_recipient_by_id(
-            recipient_id,
-            recipient_type,
-            recipient_type_id
-        )
+        # Render topic_links with the stream's realm instead of the
+        # user's realm; this is important for messages sent by
+        # cross-realm bots like NOTIFICATION_BOT.
+        #
+        # TODO: We could potentially avoid this database query in
+        # common cases by optionally passing through the
+        # stream_realm_id through the code path from do_send_messages
+        # (where we've already fetched the data).  It would involve
+        # somewhat messy plumbing, but would probably be worth it.
+        rendering_realm_id = sender_realm_id
+        if message and recipient_type == Recipient.STREAM:
+            rendering_realm_id = Stream.objects.get(id=recipient_type_id).realm_id
 
-        obj[TOPIC_LINKS] = bugdown.topic_links(sender_realm_id, topic_name)
+        obj[TOPIC_LINKS] = bugdown.topic_links(rendering_realm_id, topic_name)
 
         if last_edit_time is not None:
             obj['last_edit_timestamp'] = datetime_to_timestamp(last_edit_time)
@@ -393,6 +404,7 @@ class MessageDict:
             'id',
             'full_name',
             'short_name',
+            'delivery_email',
             'email',
             'realm__string_id',
             'avatar_source',
@@ -413,13 +425,14 @@ class MessageDict:
             obj['sender_full_name'] = user_row['full_name']
             obj['sender_short_name'] = user_row['short_name']
             obj['sender_email'] = user_row['email']
+            obj['sender_delivery_email'] = user_row['delivery_email']
             obj['sender_realm_str'] = user_row['realm__string_id']
             obj['sender_avatar_source'] = user_row['avatar_source']
             obj['sender_avatar_version'] = user_row['avatar_version']
             obj['sender_is_mirror_dummy'] = user_row['is_mirror_dummy']
 
     @staticmethod
-    def hydrate_recipient_info(obj: Dict[str, Any]) -> None:
+    def hydrate_recipient_info(obj: Dict[str, Any], display_recipient: DisplayRecipientT) -> None:
         '''
         This method hyrdrates recipient info with things
         like full names and emails of senders.  Eventually
@@ -427,7 +440,6 @@ class MessageDict:
         themselves with info they already have on users.
         '''
 
-        display_recipient = obj['raw_display_recipient']
         recipient_type = obj['recipient_type']
         recipient_type_id = obj['recipient_type_id']
         sender_is_mirror_dummy = obj['sender_is_mirror_dummy']
@@ -448,7 +460,7 @@ class MessageDict:
                          'full_name': sender_full_name,
                          'short_name': sender_short_name,
                          'id': sender_id,
-                         'is_mirror_dummy': sender_is_mirror_dummy}
+                         'is_mirror_dummy': sender_is_mirror_dummy}  # type: UserDisplayRecipient
                 if recip['email'] < display_recipient[0]['email']:
                     display_recipient = [recip, display_recipient[0]]
                 elif recip['email'] > display_recipient[0]['email']:
@@ -462,17 +474,31 @@ class MessageDict:
             obj['stream_id'] = recipient_type_id
 
     @staticmethod
+    def bulk_hydrate_recipient_info(objs: List[Dict[str, Any]]) -> None:
+        recipient_tuples = set(  # We use set to eliminate duplicate tuples.
+            (
+                obj['recipient_id'],
+                obj['recipient_type'],
+                obj['recipient_type_id']
+            ) for obj in objs
+        )
+        display_recipients = bulk_fetch_display_recipients(recipient_tuples)
+
+        for obj in objs:
+            MessageDict.hydrate_recipient_info(obj, display_recipients[obj['recipient_id']])
+
+    @staticmethod
     def set_sender_avatar(obj: Dict[str, Any], client_gravatar: bool) -> None:
         sender_id = obj['sender_id']
         sender_realm_id = obj['sender_realm_id']
-        sender_email = obj['sender_email']
+        sender_delivery_email = obj['sender_delivery_email']
         sender_avatar_source = obj['sender_avatar_source']
         sender_avatar_version = obj['sender_avatar_version']
 
         obj['avatar_url'] = get_avatar_field(
             user_id=sender_id,
             realm_id=sender_realm_id,
-            email=sender_email,
+            email=sender_delivery_email,
             avatar_source=sender_avatar_source,
             avatar_version=sender_avatar_version,
             medium=False,
@@ -652,7 +678,7 @@ def do_render_markdown(message: Message,
 def huddle_users(recipient_id: int) -> str:
     display_recipient = get_display_recipient_by_id(recipient_id,
                                                     Recipient.HUDDLE,
-                                                    None)  # type: Union[str, List[Dict[str, Any]]]
+                                                    None)  # type: DisplayRecipientT
 
     # str is for streams.
     assert not isinstance(display_recipient, str)
@@ -837,9 +863,19 @@ def get_raw_unread_data(user_profile: UserProfile) -> RawUnreadMessagesResult:
                 user_ids_string=user_ids_string,
             )
 
+        # TODO: Add support for alert words here as well.
         is_mentioned = (row['flags'] & UserMessage.flags.mentioned) != 0
+        is_wildcard_mentioned = (row['flags'] & UserMessage.flags.wildcard_mentioned) != 0
         if is_mentioned:
             mentions.add(message_id)
+        if is_wildcard_mentioned:
+            if msg_type == Recipient.STREAM:
+                stream_id = row['message__recipient__type_id']
+                topic = row[MESSAGE__TOPIC]
+                if not is_row_muted(stream_id, recipient_id, topic):
+                    mentions.add(message_id)
+            else:  # nocoverage # TODO: Test wildcard mentions in PMs.
+                mentions.add(message_id)
 
     return dict(
         pm_dict=pm_dict,
@@ -895,7 +931,7 @@ def aggregate_unread_data(raw_data: RawUnreadMessagesResult) -> UnreadMessagesRe
     return result
 
 def apply_unread_message_event(user_profile: UserProfile,
-                               state: Dict[str, Any],
+                               state: RawUnreadMessagesResult,
                                message: Dict[str, Any],
                                flags: List[str]) -> None:
     message_id = message['id']
@@ -949,6 +985,19 @@ def apply_unread_message_event(user_profile: UserProfile,
 
     if 'mentioned' in flags:
         state['mentions'].add(message_id)
+    if 'wildcard_mentioned' in flags:
+        if message_id in state['unmuted_stream_msgs']:
+            state['mentions'].add(message_id)
+
+def remove_message_id_from_unread_mgs(state: RawUnreadMessagesResult,
+                                      message_id: int) -> None:
+    # The opposite of apply_unread_message_event; removes a read or
+    # deleted message from a raw_unread_msgs data structure.
+    state['pm_dict'].pop(message_id, None)
+    state['stream_dict'].pop(message_id, None)
+    state['huddle_dict'].pop(message_id, None)
+    state['unmuted_stream_msgs'].discard(message_id)
+    state['mentions'].discard(message_id)
 
 def estimate_recent_messages(realm: Realm, hours: int) -> int:
     stat = COUNT_STATS['messages_sent:is_bot:hour']
@@ -984,11 +1033,9 @@ def get_recent_conversations_recipient_id(user_profile: UserProfile,
     get_recent_private_conversations would have used to record that
     message in its data structure.
     """
-    my_recipient_id = Recipient.objects.get(type=Recipient.PERSONAL,
-                                            type_id=user_profile.id).id
+    my_recipient_id = user_profile.id
     if recipient_id == my_recipient_id:
-        return Recipient.objects.get(type=Recipient.PERSONAL,
-                                     type_id=sender_id).id
+        return UserProfile.objects.values_list('recipient_id', flat=True).get(id=sender_id)
     return recipient_id
 
 def get_recent_private_conversations(user_profile: UserProfile) -> Dict[int, Dict[str, Any]]:
@@ -1022,8 +1069,7 @@ def get_recent_private_conversations(user_profile: UserProfile) -> Dict[int, Dic
     RECENT_CONVERSATIONS_LIMIT = 1000
 
     recipient_map = {}
-    my_recipient_id = Recipient.objects.get(type=Recipient.PERSONAL,
-                                            type_id=user_profile.id).id
+    my_recipient_id = user_profile.recipient_id
 
     query = '''
     SELECT
@@ -1046,22 +1092,15 @@ def get_recent_private_conversations(user_profile: UserProfile) -> Dict[int, Dic
         LIMIT %(conversation_limit)d)
         UNION ALL
         (SELECT
-            um.message_id AS message_id,
-            r.id AS recipient_id
+            m.id AS message_id,
+            sender_profile.recipient_id AS recipient_id
         FROM
-            zerver_usermessage um
-        JOIN
             zerver_message m
-        ON
-            um.message_id = m.id
         JOIN
-            zerver_recipient r
+            zerver_userprofile sender_profile
         ON
-            r.type = 1 AND
-            r.type_id = m.sender_id
+            m.sender_id = sender_profile.id
         WHERE
-            um.user_profile_id=%(user_profile_id)d AND
-            um.flags & 2048 <> 0 AND
             m.recipient_id=%(my_recipient_id)d
         ORDER BY message_id DESC
         LIMIT %(conversation_limit)d)
@@ -1094,4 +1133,9 @@ def get_recent_private_conversations(user_profile: UserProfile) -> Dict[int, Dic
                 user_profile_id=user_profile.id).values_list(
                     "recipient_id", "user_profile_id"):
         recipient_map[recipient_id]['user_ids'].append(user_profile_id)
+
+    # Sort to prevent test flakes and client bugs.
+    for rec in recipient_map.values():
+        rec['user_ids'].sort()
+
     return recipient_map

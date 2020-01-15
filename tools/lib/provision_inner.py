@@ -34,8 +34,6 @@ if is_travis:
 
 UUID_VAR_PATH = get_dev_uuid_var_path()
 
-user_id = os.getuid()
-
 def setup_shell_profile(shell_profile):
     # type: (str) -> None
     shell_profile_path = os.path.expanduser(shell_profile)
@@ -57,8 +55,47 @@ def setup_shell_profile(shell_profile):
     if os.path.exists('/srv/zulip'):
         write_command('cd /srv/zulip')
 
+def setup_bash_profile() -> None:
+    """Select a bash profile file to add setup code to."""
+
+    BASH_PROFILES = [
+        os.path.expanduser(p) for p in
+        ("~/.bash_profile", "~/.bash_login", "~/.profile")
+    ]
+
+    def clear_old_profile() -> None:
+        # An earlier version of this script would output a fresh .bash_profile
+        # even though a .profile existed in the image used. As a convenience to
+        # existing developers (and, perhaps, future developers git-bisecting the
+        # provisioning scripts), check for this situation, and blow away the
+        # created .bash_profile if one is found.
+
+        BASH_PROFILE = BASH_PROFILES[0]
+        DOT_PROFILE = BASH_PROFILES[2]
+        OLD_PROFILE_TEXT = "source /srv/zulip-py3-venv/bin/activate\n" + \
+            "cd /srv/zulip\n"
+
+        if os.path.exists(DOT_PROFILE):
+            try:
+                with open(BASH_PROFILE, "r") as f:
+                    profile_contents = f.read()
+                if profile_contents == OLD_PROFILE_TEXT:
+                    os.unlink(BASH_PROFILE)
+            except FileNotFoundError:
+                pass
+
+    clear_old_profile()
+
+    for candidate_profile in BASH_PROFILES:
+        if os.path.exists(candidate_profile):
+            setup_shell_profile(candidate_profile)
+            break
+    else:
+        # no existing bash profile found; claim .bash_profile
+        setup_shell_profile(BASH_PROFILES[0])
+
 def main(options: argparse.Namespace) -> int:
-    setup_shell_profile('~/.bash_profile')
+    setup_bash_profile()
     setup_shell_profile('~/.zprofile')
 
     # This needs to happen before anything that imports zproject.settings.
@@ -80,9 +117,9 @@ def main(options: argparse.Namespace) -> int:
     # The `build_emoji` script requires `emoji-datasource` package
     # which we install via npm; thus this step is after installing npm
     # packages.
-    if not os.path.isdir(EMOJI_CACHE_PATH):
-        run_as_root(["mkdir", EMOJI_CACHE_PATH])
-    run_as_root(["chown", "%s:%s" % (user_id, user_id), EMOJI_CACHE_PATH])
+    if not os.access(EMOJI_CACHE_PATH, os.W_OK):
+        run_as_root(["mkdir", "-p", EMOJI_CACHE_PATH])
+        run_as_root(["chown", "%s:%s" % (os.getuid(), os.getgid()), EMOJI_CACHE_PATH])
     run(["tools/setup/emoji/build_emoji"])
 
     # copy over static files from the zulip_bots package
@@ -102,12 +139,12 @@ def main(options: argparse.Namespace) -> int:
     else:
         print("No need to run `tools/update-authors-json`.")
 
-    email_source_paths = ["tools/inline-email-css", "templates/zerver/emails/email.css"]
+    email_source_paths = ["scripts/setup/inline-email-css", "templates/zerver/emails/email.css"]
     email_source_paths += glob.glob('templates/zerver/emails/*.source.html')
     if file_or_package_hash_updated(email_source_paths, "last_email_source_files_hash", options.is_force):
-        run(["tools/inline-email-css"])
+        run(["scripts/setup/inline-email-css"])
     else:
-        print("No need to run `tools/inline-email-css`.")
+        print("No need to run `scripts/setup/inline-email-css`.")
 
     if not options.is_production_travis:
         # The following block is skipped for the production Travis

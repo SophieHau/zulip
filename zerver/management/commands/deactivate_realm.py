@@ -1,9 +1,9 @@
-
 from argparse import ArgumentParser
 from typing import Any
 
 from zerver.lib.actions import do_deactivate_realm
 from zerver.lib.management import ZulipBaseCommand
+
 
 class Command(ZulipBaseCommand):
     help = """Script to deactivate a realm."""

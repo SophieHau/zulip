@@ -1,6 +1,6 @@
 import logging
 import stripe
-from typing import Any, Dict, cast
+from typing import Any, Dict, cast, Optional, Union
 
 from django.core import signing
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
@@ -11,13 +11,12 @@ from django.urls import reverse
 from django.conf import settings
 
 from zerver.decorator import zulip_login_required, require_billing_access
-from zerver.lib.json_encoder_for_html import JSONEncoderForHTML
 from zerver.lib.request import REQ, has_request_variables
 from zerver.lib.response import json_error, json_success
 from zerver.lib.validator import check_string, check_int
 from zerver.models import UserProfile
 from corporate.lib.stripe import STRIPE_PUBLISHABLE_KEY, \
-    stripe_get_customer, get_seat_count, \
+    stripe_get_customer, get_latest_seat_count, \
     process_initial_upgrade, sign_string, \
     unsign_string, BillingError, do_change_plan_status, do_replace_payment_source, \
     MIN_INVOICED_LICENSES, DEFAULT_INVOICE_DAYS_UNTIL_DUE, \
@@ -35,7 +34,7 @@ def unsign_seat_count(signed_seat_count: str, salt: str) -> int:
         raise BillingError('tampered seat count')
 
 def check_upgrade_parameters(
-        billing_modality: str, schedule: str, license_management: str, licenses: int,
+        billing_modality: str, schedule: str, license_management: Optional[str], licenses: Optional[int],
         has_stripe_token: bool, seat_count: int) -> None:
     if billing_modality not in ['send_invoice', 'charge_automatically']:
         raise BillingError('unknown billing_modality')
@@ -57,7 +56,7 @@ def check_upgrade_parameters(
 
 # Should only be called if the customer is being charged automatically
 def payment_method_string(stripe_customer: stripe.Customer) -> str:
-    stripe_source = stripe_customer.default_source
+    stripe_source = stripe_customer.default_source  # type: Optional[Union[stripe.Card, stripe.Source]]
     # In case of e.g. an expired card
     if stripe_source is None:  # nocoverage
         return _("No payment method on file")
@@ -75,9 +74,9 @@ def payment_method_string(stripe_customer: stripe.Customer) -> str:
 def upgrade(request: HttpRequest, user: UserProfile,
             billing_modality: str=REQ(validator=check_string),
             schedule: str=REQ(validator=check_string),
-            license_management: str=REQ(validator=check_string, default=None),
-            licenses: int=REQ(validator=check_int, default=None),
-            stripe_token: str=REQ(validator=check_string, default=None),
+            license_management: Optional[str]=REQ(validator=check_string, default=None),
+            licenses: Optional[int]=REQ(validator=check_int, default=None),
+            stripe_token: Optional[str]=REQ(validator=check_string, default=None),
             signed_seat_count: str=REQ(validator=check_string),
             salt: str=REQ(validator=check_string)) -> HttpResponse:
     try:
@@ -90,6 +89,7 @@ def upgrade(request: HttpRequest, user: UserProfile,
         check_upgrade_parameters(
             billing_modality, schedule, license_management, licenses,
             stripe_token is not None, seat_count)
+        assert licenses is not None
         automanage_licenses = license_management == 'automatic'
 
         billing_schedule = {'annual': CustomerPlan.ANNUAL,
@@ -125,23 +125,23 @@ def initial_upgrade(request: HttpRequest) -> HttpResponse:
     if customer is not None and customer.default_discount is not None:
         percent_off = customer.default_discount
 
-    seat_count = get_seat_count(user.realm)
+    seat_count = get_latest_seat_count(user.realm)
     signed_seat_count, salt = sign_string(str(seat_count))
     context = {
         'publishable_key': STRIPE_PUBLISHABLE_KEY,
-        'email': user.email,
+        'email': user.delivery_email,
         'seat_count': seat_count,
         'signed_seat_count': signed_seat_count,
         'salt': salt,
         'min_invoiced_licenses': max(seat_count, MIN_INVOICED_LICENSES),
         'default_invoice_days_until_due': DEFAULT_INVOICE_DAYS_UNTIL_DUE,
         'plan': "Zulip Standard",
-        'page_params': JSONEncoderForHTML().encode({
+        'page_params': {
             'seat_count': seat_count,
             'annual_price': 8000,
             'monthly_price': 800,
             'percent_off': float(percent_off),
-        }),
+        },
     }  # type: Dict[str, Any]
     response = render(request, 'corporate/upgrade.html', context=context)
     return response
@@ -178,7 +178,7 @@ def billing_home(request: HttpRequest) -> HttpResponse:
         last_ledger_entry = make_end_of_cycle_updates_if_needed(plan, now)
         if last_ledger_entry is not None:
             licenses = last_ledger_entry.licenses
-            licenses_used = get_seat_count(user.realm)
+            licenses_used = get_latest_seat_count(user.realm)
             # Should do this in javascript, using the user's timezone
             renewal_date = '{dt:%B} {dt.day}, {dt.year}'.format(dt=start_of_next_billing_cycle(plan, now))
             renewal_cents = renewal_amount(plan, now)

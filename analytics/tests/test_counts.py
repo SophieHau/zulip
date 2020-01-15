@@ -1,7 +1,7 @@
-
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Type
 
+import mock
 import ujson
 from django.apps import apps
 from django.db import models
@@ -22,6 +22,7 @@ from zerver.lib.actions import do_activate_user, do_create_user, \
     do_deactivate_user, do_reactivate_user, update_user_activity_interval, \
     do_invite_users, do_revoke_user_invite, do_resend_user_invite_email, \
     InvitationError
+from zerver.lib.create_user import create_user
 from zerver.lib.timestamp import TimezoneNotUTCException, floor_to_day
 from zerver.lib.topic import DB_TOPIC_NAME
 from zerver.models import Client, Huddle, Message, Realm, \
@@ -36,6 +37,7 @@ class AnalyticsTestCase(TestCase):
     TIME_LAST_HOUR = TIME_ZERO - HOUR
 
     def setUp(self) -> None:
+        super().setUp()
         self.default_realm = Realm.objects.create(
             string_id='realmtest', name='Realm Test', date_created=self.TIME_ZERO - 2*self.DAY)
         # used to generate unique names in self.create_*
@@ -51,16 +53,21 @@ class AnalyticsTestCase(TestCase):
             'date_joined': self.TIME_LAST_HOUR,
             'full_name': 'full_name',
             'short_name': 'short_name',
-            'pointer': -1,
-            'last_pointer_updater': 'seems unused?',
-            'realm': self.default_realm,
-            'api_key': '42'}
+            'is_active': True,
+            'is_bot': False,
+            'realm': self.default_realm}
         for key, value in defaults.items():
             kwargs[key] = kwargs.get(key, value)
         kwargs['delivery_email'] = kwargs['email']
-        user_profile = UserProfile.objects.create(**kwargs)
-        # TODO: Make this pass user_profile.full_clean()
-        return user_profile
+        with mock.patch("zerver.lib.create_user.timezone_now", return_value=kwargs['date_joined']):
+            pass_kwargs = {}  # type: Dict[str, Any]
+            if kwargs['is_bot']:
+                pass_kwargs['bot_type'] = UserProfile.DEFAULT_BOT
+                pass_kwargs['bot_owner'] = None
+            return create_user(kwargs['email'], 'password', kwargs['realm'],
+                               active=kwargs['is_active'],
+                               full_name=kwargs['full_name'], short_name=kwargs['short_name'],
+                               is_realm_admin=True, **pass_kwargs)
 
     def create_stream_with_recipient(self, **kwargs: Any) -> Tuple[Stream, Recipient]:
         self.name_counter += 1
@@ -88,7 +95,7 @@ class AnalyticsTestCase(TestCase):
             'recipient': recipient,
             DB_TOPIC_NAME: 'subject',
             'content': 'hi',
-            'pub_date': self.TIME_LAST_HOUR,
+            'date_sent': self.TIME_LAST_HOUR,
             'sending_client': get_client("website")}
         for key, value in defaults.items():
             kwargs[key] = kwargs.get(key, value)
@@ -318,7 +325,7 @@ class TestCountStats(AnalyticsTestCase):
             recipient = self.create_stream_with_recipient(
                 name='stream %s' % (minutes_ago,), realm=self.second_realm,
                 date_created=creation_time)[1]
-            self.create_message(user, recipient, pub_date=creation_time)
+            self.create_message(user, recipient, date_sent=creation_time)
         self.hourly_user = get_user('user-1@second.analytics', self.second_realm)
         self.daily_user = get_user('user-61@second.analytics', self.second_realm)
 
@@ -363,8 +370,8 @@ class TestCountStats(AnalyticsTestCase):
         bot = self.create_user(is_bot=True)
         human1 = self.create_user()
         human2 = self.create_user()
-        recipient_human1 = Recipient.objects.create(type_id=human1.id,
-                                                    type=Recipient.PERSONAL)
+        recipient_human1 = Recipient.objects.get(type_id=human1.id,
+                                                 type=Recipient.PERSONAL)
 
         recipient_stream = self.create_stream_with_recipient()[1]
         recipient_huddle = self.create_huddle_with_recipient()[1]
@@ -418,9 +425,9 @@ class TestCountStats(AnalyticsTestCase):
         self.create_message(user2, recipient_huddle2)
 
         # private messages
-        recipient_user1 = Recipient.objects.create(type_id=user1.id, type=Recipient.PERSONAL)
-        recipient_user2 = Recipient.objects.create(type_id=user2.id, type=Recipient.PERSONAL)
-        recipient_user3 = Recipient.objects.create(type_id=user3.id, type=Recipient.PERSONAL)
+        recipient_user1 = Recipient.objects.get(type_id=user1.id, type=Recipient.PERSONAL)
+        recipient_user2 = Recipient.objects.get(type_id=user2.id, type=Recipient.PERSONAL)
+        recipient_user3 = Recipient.objects.get(type_id=user3.id, type=Recipient.PERSONAL)
         self.create_message(user1, recipient_user2)
         self.create_message(user2, recipient_user1)
         self.create_message(user3, recipient_user3)
@@ -452,7 +459,7 @@ class TestCountStats(AnalyticsTestCase):
         self.current_property = stat.property
 
         user = self.create_user(id=1000)
-        user_recipient = Recipient.objects.create(type_id=user.id, type=Recipient.PERSONAL)
+        user_recipient = Recipient.objects.get(type_id=user.id, type=Recipient.PERSONAL)
         stream_recipient = self.create_stream_with_recipient(id=1000)[1]
         huddle_recipient = self.create_huddle_with_recipient(id=1000)[1]
 
@@ -472,7 +479,7 @@ class TestCountStats(AnalyticsTestCase):
 
         user1 = self.create_user(is_bot=True)
         user2 = self.create_user()
-        recipient_user2 = Recipient.objects.create(type_id=user2.id, type=Recipient.PERSONAL)
+        recipient_user2 = Recipient.objects.get(type_id=user2.id, type=Recipient.PERSONAL)
 
         recipient_stream = self.create_stream_with_recipient()[1]
         recipient_huddle = self.create_huddle_with_recipient()[1]
@@ -508,7 +515,7 @@ class TestCountStats(AnalyticsTestCase):
         bot = self.create_user(is_bot=True)
         human1 = self.create_user()
         human2 = self.create_user()
-        recipient_human1 = Recipient.objects.create(type_id=human1.id, type=Recipient.PERSONAL)
+        recipient_human1 = Recipient.objects.get(type_id=human1.id, type=Recipient.PERSONAL)
 
         stream1, recipient_stream1 = self.create_stream_with_recipient()
         stream2, recipient_stream2 = self.create_stream_with_recipient()
@@ -885,7 +892,7 @@ class TestActiveUsersAudit(AnalyticsTestCase):
         self.stat = COUNT_STATS['active_users_audit:is_bot:day']
         self.current_property = self.stat.property
 
-    def add_event(self, event_type: str, days_offset: float,
+    def add_event(self, event_type: int, days_offset: float,
                   user: Optional[UserProfile]=None) -> None:
         hours_offset = int(24*days_offset)
         if user is None:
@@ -979,7 +986,7 @@ class TestActiveUsersAudit(AnalyticsTestCase):
     # doesn't go through do_create_user. Mainly just want to make sure that
     # that situation doesn't throw an error.
     def test_empty_realm_or_user_with_no_relevant_activity(self) -> None:
-        self.add_event('unrelated', 1)
+        self.add_event(RealmAuditLog.USER_SOFT_ACTIVATED, 1)
         self.create_user()  # also test a user with no RealmAuditLog entries
         Realm.objects.create(string_id='moo', name='moo')
         do_fill_count_stat_at_hour(self.stat, self.TIME_ZERO)
@@ -987,14 +994,14 @@ class TestActiveUsersAudit(AnalyticsTestCase):
 
     def test_max_audit_entry_is_unrelated(self) -> None:
         self.add_event(RealmAuditLog.USER_CREATED, 1)
-        self.add_event('unrelated', .5)
+        self.add_event(RealmAuditLog.USER_SOFT_ACTIVATED, .5)
         do_fill_count_stat_at_hour(self.stat, self.TIME_ZERO)
         self.assertTableState(UserCount, ['subgroup'], [['false']])
 
     # Simultaneous related audit entries should not be allowed, and so not testing for that.
     def test_simultaneous_unrelated_audit_entry(self) -> None:
         self.add_event(RealmAuditLog.USER_CREATED, 1)
-        self.add_event('unrelated', 1)
+        self.add_event(RealmAuditLog.USER_SOFT_ACTIVATED, 1)
         do_fill_count_stat_at_hour(self.stat, self.TIME_ZERO)
         self.assertTableState(UserCount, ['subgroup'], [['false']])
 

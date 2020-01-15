@@ -26,6 +26,22 @@ html {
     border-radius: 4px;
 }
 
+.bottom-text {
+    text-align: center;
+    margin-top: 20px;
+    font-weight: 500;
+    font-size: 0.9em;
+
+    a {
+        color: hsl(164, 100%, 23%);
+
+        &:hover {
+            text-decoration: none;
+            color: hsl(156, 62%, 61%);
+        }
+    }
+}
+
 .grey {
     color: hsl(0, 0%, 67%);
 }
@@ -210,7 +226,6 @@ html {
 }
 
 .new-style {
-    -webkit-font-smoothing: antialiased;
 }
 
 .register-form.new-style {
@@ -234,7 +249,9 @@ html {
     margin: 0 auto 10px;
 }
 
-.register-account .terms-of-service .input-group {
+.register-account .terms-of-service .input-group,
+.register-account .default-stream-groups .input-group,
+.register-account .default-stream-groups p {
     width: 330px;
     margin: 0 auto 10px;
 }
@@ -308,11 +325,6 @@ html {
 
 .register-page .register-form .new-organization-button {
     margin-top: 25px;
-}
-
-.register-page .register-form .bottom-text {
-    font-size: 1.2rem;
-    margin-top: 40px;
 }
 
 .new-style .alert:not(.alert-info) {
@@ -438,6 +450,7 @@ html {
     font-size: 2.5rem;
     text-align: center;
     color: hsl(0, 0%, 40%);
+    margin-bottom: 20px;
 }
 
 .new-style button {
@@ -621,42 +634,17 @@ button.login-social-button:active {
     box-shadow: 0px 1px 1px hsla(0, 0%, 0%, 0.3);
 }
 
-.google-wrapper button.login-social-button {
-    background-image: url('/static/images/landing-page/logos/googl_e-icon.png');
-    width: 100%;
-}
-
-.github-wrapper::before {
-    content: "\f09b";
-    position: absolute;
-
-    font-family: "FontAwesome";
-    font-size: 2rem;
-    color: hsl(0, 0%, 20%);
-    transform: translateX(15px) translateY(13px);
-}
-
-.azuread-wrapper::before {
-    content: "\f17a";
-    position: absolute;
-
-    font-family: "FontAwesome";
-    font-size: 2rem;
-    color: hsl(0, 0%, 20%);
-    transform: translateX(15px) translateY(13px);
-}
-
 .login-page-container .right-side .actions,
-.forgot-password-container .actions {
+.back-to-login-wrapper {
     margin: 20px 0px 0px;
     text-align: left;
 }
 
-.forgot-password-container .actions {
+.back-to-login-wrapper {
     line-height: 0;
 }
 
-.forgot-password-container .actions .back-to-login i {
+.back-to-login-wrapper .back-to-login i {
     position: relative;
     top: 5px;
 
@@ -1065,14 +1053,6 @@ button.login-social-button:active {
         font-size: 0.9em;
     }
 
-    #create-organization-section {
-        text-align: center;
-        margin-top: 20px;
-        font-weight: 500;
-        margin-left: -28px;
-        font-size: 0.9em;
-    }
-
     .find-account-link {
         color: hsl(165, 100.0%, 14.7%);
     }
@@ -1081,26 +1061,62 @@ button.login-social-button:active {
 #choose_email {
     flex-direction: column;
 
+    .white-box {
+        min-width: 450px;
+        padding: 30px 0 50px 0;
+    }
+
     form {
         padding: 0;
         margin: 0;
+
+        &.form-horizontal:hover {
+            background-color: hsl(202, 56%, 91%);
+            cursor: pointer;
+
+            i.fa {
+                color: hsl(203, 63%, 76%);
+            }
+        }
     }
 
-    button {
-        color: hsl(0, 0%, 0%);
-        background-color: hsl(0, 0%, 100%);
-        width: 100%;
-        margin-top: 15px;
-        border: 1px solid hsl(0, 0%, 80%);
-        border-radius: 4px;
-    }
+    .choose-email-box {
+        padding: 13px 0;
+        margin: 0 30px;
+        border-bottom: 1px solid hsl(0, 0%, 95%);
+        display: flex;
+        align-items: center;
 
-    button:hover {
-        border-color: hsl(0, 0%, 0%);
-    }
+        p {
+            margin: 0;
+            font-size: 0.8em;
 
-    button:active {
-        border-color: hsl(0, 0%, 60%);
-        background-color: hsl(0, 0%, 95%);
+            &:last-child {
+                line-height: 1.2em;
+            }
+        }
+
+        .email {
+            font-size: 0.95em;
+            font-weight: 500;
+        }
+
+        img,
+        i {
+            width: 35px;
+            height: 35px;
+            margin-right: 10px;
+            border-radius: 3px;
+        }
+
+        i.fa {
+            color: hsl(0, 0%, 67%);
+            text-align: center;
+            line-height: 38px;
+
+            &::before {
+                font-size: 30px;
+            }
+        }
     }
 }

@@ -39,8 +39,8 @@ function candidate_ids() {
 }
 
 run_test('get_unread_ids', () => {
-    var unread_ids;
-    var terms;
+    let unread_ids;
+    let terms;
 
     const sub = {
         name: 'My Stream',
@@ -54,6 +54,7 @@ run_test('get_unread_ids', () => {
         topic: 'my topic',
         unread: true,
         mentioned: true,
+        mentioned_me_directly: true,
     };
 
     const private_msg = {
@@ -61,7 +62,7 @@ run_test('get_unread_ids', () => {
         type: 'private',
         unread: true,
         display_recipient: [
-            {user_id: alice.user_id},
+            {id: alice.user_id},
         ],
     };
 
@@ -224,7 +225,7 @@ run_test('defensive code', () => {
     // couldn't compute the unread message ids, but that
     // invariant is hard to future-proof.
     narrow_state._possible_unread_message_ids = () => undefined;
-    var terms = [
+    const terms = [
         {operator: 'some-unhandled-case', operand: 'whatever'},
     ];
     set_filter(terms);

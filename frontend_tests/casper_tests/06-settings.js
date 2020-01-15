@@ -1,4 +1,4 @@
-var common = require('../casper_lib/common.js').common;
+var common = require('../casper_lib/common.js');
 var test_credentials = require('../../var/casper/test_credentials.js').test_credentials;
 var OUTGOING_WEBHOOK_BOT_TYPE = '3';
 var GENERIC_BOT_TYPE = '1';
@@ -68,13 +68,13 @@ casper.then(function () {
 
 casper.then(function () {
     casper.waitUntilVisible('#get_api_key_button', function () {
-        casper.fill('#get_api_key_form', {password: test_credentials.default_user.password});
+        casper.fill('#api_key_form', {password: test_credentials.default_user.password});
         casper.click('#get_api_key_button');
     });
 });
 
 casper.then(function () {
-    casper.waitUntilVisible('#show_api_key_box', function () {
+    casper.waitUntilVisible('#show_api_key', function () {
         casper.test.assertMatch(casper.fetchText('#api_key_value'), /[a-zA-Z0-9]{32}/, "Looks like an API key");
 
         /*
@@ -90,7 +90,7 @@ casper.then(function () {
 });
 
 casper.then(function () {
-    casper.waitUntilVisible('#show_api_key_box', function () {
+    casper.waitUntilVisible('#show_api_key', function () {
         casper.test.assertExists('#download_zuliprc', '~/.zuliprc button exists');
         casper.click('#download_zuliprc');
     });
@@ -106,6 +106,8 @@ casper.then(function () {
 });
 
 casper.then(function () {
+    casper.click('#api_key_modal .close');
+
     // casper.waitUntilVisible('#account-settings-status', function () {
     casper.click('[data-section="your-bots"]');
     // });
@@ -125,7 +127,7 @@ casper.then(function create_bot() {
     casper.click('#create_bot_button');
 });
 
-var bot_email = '1-bot@zulip.zulipdev.com';
+var bot_email = '1-bot@zulip.testserver';
 var button_sel = '.download_bot_zuliprc[data-email="' + bot_email + '"]';
 
 casper.then(function () {
@@ -156,7 +158,7 @@ casper.then(function create_bot() {
     casper.click('#create_bot_button');
 });
 
-var second_bot_email = '2-bot@zulip.zulipdev.com';
+var second_bot_email = '2-bot@zulip.testserver';
 var second_button_sel = '.download_bot_zuliprc[data-email="' + second_bot_email + '"]';
 
 casper.then(function () {

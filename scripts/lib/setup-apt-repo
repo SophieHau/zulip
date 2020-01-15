@@ -27,7 +27,7 @@ touch "$SOURCES_FILE"
 # Hash it to check if the sources file is changed by the script later.
 zulip_source_hash=$(sha1sum "$SOURCES_FILE")
 
-pre_setup_deps=(lsb-release apt-transport-https gnupg)
+pre_setup_deps=(lsb-release apt-transport-https ca-certificates gnupg)
 if ! apt-get -dy install "${pre_setup_deps[@]}"; then
     apt-get update
 fi
@@ -36,29 +36,15 @@ apt-get -y install "${pre_setup_deps[@]}"
 SCRIPTS_PATH="$(dirname "$(dirname "$0")")"
 
 release=$(lsb_release -sc)
-if [ "$release" = "xenial" ] || [ "$release" = "bionic" ]; then
-    apt-key add "$SCRIPTS_PATH"/setup/pgroonga-ppa.asc
-    apt-key add "$SCRIPTS_PATH"/setup/zulip-ppa.asc
-    cat >$SOURCES_FILE <<EOF
-deb http://ppa.launchpad.net/groonga/ppa/ubuntu $release main
-deb http://ppa.launchpad.net/tabbott/zulip/ubuntu $release main
-deb-src http://ppa.launchpad.net/groonga/ppa/ubuntu $release main
-deb-src http://ppa.launchpad.net/tabbott/zulip/ubuntu $release main
-EOF
-elif [ "$release" = "cosmic" ] || [ "$release" = "disco" ]; then
-    # This case will eventually merge with the above, if/when we add
-    # tsearch_extras packages to the Zulip PPA.
+if [ "$release" = "xenial" ] || [ "$release" = "bionic" ] || [ "$release" = "cosmic" ] || [ "$release" = "disco" ]; then
     apt-key add "$SCRIPTS_PATH"/setup/pgroonga-ppa.asc
     cat >$SOURCES_FILE <<EOF
 deb http://ppa.launchpad.net/groonga/ppa/ubuntu $release main
 deb-src http://ppa.launchpad.net/groonga/ppa/ubuntu $release main
 EOF
 elif [ "$release" = "stretch" ] || [ "$release" = "buster" ]; then
-    apt-get install -y debian-archive-keyring
-    apt-key add "$SCRIPTS_PATH"/setup/packagecloud.asc
     apt-key add "$SCRIPTS_PATH"/setup/pgroonga-debian.asc
     cat >$SOURCES_FILE <<EOF
-deb https://packagecloud.io/zulip/server/debian/ $release main
 deb https://packages.groonga.org/debian/ $release main
 deb-src https://packages.groonga.org/debian/ $release main
 EOF
@@ -75,6 +61,10 @@ else
     # `apt-get update` finishes successfully.
     touch "$STAMP_FILE"
     apt-get update && rm -f "$STAMP_FILE"
+fi
+
+if [ "$release" = "stretch" ]; then
+    apt-get install -y groonga-keyring
 fi
 
 echo "$DEPENDENCIES_HASH" > "$DEPENDENCIES_HASH_FILE"

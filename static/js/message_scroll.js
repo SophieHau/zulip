@@ -1,10 +1,6 @@
-var message_scroll = (function () {
+let actively_scrolling = false;
 
-var exports = {};
-
-var actively_scrolling = false;
-
-var loading_more_messages_indicator_showing = false;
+let loading_more_messages_indicator_showing = false;
 exports.show_loading_older = function () {
     if (!loading_more_messages_indicator_showing) {
         loading.make_indicator($('#loading_more_messages_indicator'),
@@ -65,7 +61,7 @@ exports.scroll_finished = function () {
     setTimeout(unread_ops.process_visible, 0);
 };
 
-var scroll_timer;
+let scroll_timer;
 function scroll_finish() {
     actively_scrolling = true;
     clearTimeout(scroll_timer);
@@ -80,10 +76,4 @@ exports.initialize = function () {
 };
 
 
-return exports;
-
-}());
-if (typeof module !== 'undefined') {
-    module.exports = message_scroll;
-}
-window.message_scroll = message_scroll;
+window.message_scroll = exports;

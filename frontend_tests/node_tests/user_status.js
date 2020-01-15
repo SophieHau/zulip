@@ -1,3 +1,4 @@
+set_global('blueslip', global.make_zblueslip());
 set_global('channel', {});
 set_global('page_params', {});
 zrequire('user_status');
@@ -41,8 +42,8 @@ run_test('basics', () => {
 run_test('server', () => {
     initialize();
 
-    var sent_data;
-    var success;
+    let sent_data;
+    let success;
 
     channel.post = (opts) => {
         sent_data = opts.data;
@@ -58,7 +59,7 @@ run_test('server', () => {
     user_status.server_revoke_away();
     assert.deepEqual(sent_data, {away: false, status_text: undefined});
 
-    var called;
+    let called;
 
     user_status.server_update({
         status_text: 'out to lunch',
@@ -69,4 +70,10 @@ run_test('server', () => {
 
     success();
     assert(called);
+});
+
+run_test('defensive checks', () => {
+    blueslip.set_test_data('error', 'need ints for user_id');
+    user_status.set_away('string');
+    user_status.revoke_away('string');
 });

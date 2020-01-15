@@ -1,8 +1,4 @@
-var autosize = require('autosize');
-
-var compose_ui = (function () {
-
-var exports = {};
+const autosize = require('autosize');
 
 exports.autosize_textarea = function () {
     autosize.update($("#compose-textarea"));
@@ -13,9 +9,9 @@ exports.smart_insert = function (textarea, syntax) {
         return c === ' ' || c === '\t' || c === '\n';
     }
 
-    var pos = textarea.caret();
-    var before_str = textarea.val().slice(0, pos);
-    var after_str = textarea.val().slice(pos);
+    const pos = textarea.caret();
+    const before_str = textarea.val().slice(0, pos);
+    const after_str = textarea.val().slice(pos);
 
     if (pos > 0) {
         // If there isn't space either at the end of the content
@@ -76,10 +72,44 @@ exports.replace_syntax = function (old_syntax, new_syntax, textarea) {
     }));
 };
 
-return exports;
+exports.compute_placeholder_text = function (opts) {
+    // Computes clear placeholder text for the compose box, depending
+    // on what heading values have already been filled out.
+    //
+    // We return text with the stream and topic name unescaped,
+    // because the caller is expected to insert this into the
+    // placeholder field in a way that does HTML escaping.
+    if (opts.message_type === 'stream') {
+        if (opts.topic) {
+            return i18n.t("Message #__- stream_name__ > __- topic_name__",
+                          {stream_name: opts.stream,
+                           topic_name: opts.topic});
+        } else if (opts.stream) {
+            return i18n.t("Message #__- stream_name__", {stream_name: opts.stream});
+        }
+    }
 
-}());
-if (typeof module !== 'undefined') {
-    module.exports = compose_ui;
-}
-window.compose_ui = compose_ui;
+    // For Private Messages
+    if (opts.private_message_recipient) {
+        const recipient_list = opts.private_message_recipient.split(",");
+        const recipient_names = _.map(recipient_list, (recipient) => {
+            const user = people.get_by_email(recipient);
+            return user.full_name;
+        }).join(", ");
+
+        if (recipient_list.length === 1) {
+            // If it's a single user, display status text if available
+            const user = people.get_by_email(recipient_list[0]);
+            const status = user_status.get_status_text(user.user_id);
+            if (status) {
+                return i18n.t("Message __- recipient_name__ (__- recipient_status__)",
+                              {recipient_name: recipient_names,
+                               recipient_status: status});
+            }
+        }
+        return i18n.t("Message __- recipient_names__", {recipient_names: recipient_names});
+    }
+    return i18n.t("Compose your message here");
+};
+
+window.compose_ui = exports;

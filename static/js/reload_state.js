@@ -1,7 +1,3 @@
-var reload_state = (function () {
-
-var exports = {};
-
 /*
     We want his module to load pretty early in the process
     of starting the app, so that people.js can load early.
@@ -11,8 +7,8 @@ var exports = {};
     would be kind of upside down.
 */
 
-var reload_in_progress = false;
-var reload_pending = false;
+let reload_in_progress = false;
+let reload_pending = false;
 
 exports.is_pending = function () {
     return reload_pending;
@@ -34,10 +30,4 @@ exports.set_state_to_in_progress = function () {
 };
 
 
-return exports;
-}());
-
-if (typeof module !== 'undefined') {
-    module.exports = reload_state;
-}
-window.reload_state = reload_state;
+window.reload_state = exports;

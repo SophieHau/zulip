@@ -1,58 +1,59 @@
-.informational-overlays .overlay-content {
-    /* because zoom breaks at 525px perhaps due to rounding errors, so add a
-       trivial amount of width so it doesn't break. */
-    width: 550px;
-    margin: 0 auto;
-    position: relative;
-    top: calc((30vh - 50px) / 2);
-    border-radius: 4px;
-    overflow: hidden;
+.informational-overlays {
+    .overlay-content {
+        /* because zoom breaks at 525px perhaps due to rounding errors, so add a
+           trivial amount of width so it doesn't break. */
+        width: 550px;
+        margin: 0 auto;
+        position: relative;
+        top: calc((30vh - 50px) / 2);
+        border-radius: 4px;
+        overflow: hidden;
 
-    background-color: hsl(0, 0%, 100%);
-}
+        background-color: hsl(0, 0%, 100%);
+    }
 
-.informational-overlays .overlay-tabs {
-    padding: 10px 0px;
-    border-bottom: 1px solid hsla(0, 0%, 0%, 0.2);
-}
+    .overlay-tabs {
+        padding: 10px 0px;
+        border-bottom: 1px solid hsla(0, 0%, 0%, 0.2);
 
-.informational-overlays .overlay-tabs .tab-switcher {
-    margin-left: 15px;
-}
+        .tab-switcher {
+            margin-left: 15px;
+        }
 
-.informational-overlays .overlay-tabs .exit {
-    float: right;
-    font-size: 1.5rem;
-    color: hsl(0, 0%, 67%);
-    font-weight: 600;
-    margin: 1px 15px;
-}
+        .exit {
+            float: right;
+            font-size: 1.5rem;
+            color: hsl(0, 0%, 67%);
+            font-weight: 600;
+            margin: 1px 15px;
+        }
+    }
 
-.informational-overlays .overlay-modal {
-    padding-bottom: 10px;
-}
+    .overlay-modal {
+        padding-bottom: 10px;
 
-.informational-overlays .overlay-modal .modal-body {
-    height: 70vh;
-    text-align: center;
-    outline: none;
-}
+        .modal-header h3 {
+            font-weight: 300;
+        }
 
-.informational-overlays .overlay-modal .modal-header h3 {
-    font-weight: 300;
-}
+        .modal-body {
+            height: 70vh;
+            text-align: center;
+            outline: none;
 
-.informational-overlays .overlay-modal .modal-body th {
-    font-weight: 400;
-}
+            .help-table {
+                table-layout: fixed;
+            }
 
-.informational-overlays td.operator {
-    font-size: 0.9em;
-}
+            th {
+                font-weight: 400;
+            }
+        }
+    }
 
-
-.help-table {
-    table-layout: fixed;
+    td.operator {
+        font-size: 0.9em;
+    }
 }
 
 .hotkeys_table {
@@ -60,6 +61,7 @@
     width: 100%;
     vertical-align: middle;
     display: table;
+
     td.definition {
         // keeps dividing line at same width for all tables in model.
         width: calc(50% - 11px);
@@ -73,6 +75,7 @@
     .small_hotkey {
         font-size: 0.9em !important;
         line-height: 12px;
+
         kbd {
             font-size: 0.9em;
         }
@@ -90,32 +93,29 @@
         padding: 0.1em 0.4em;
         text-shadow: 0 1px 0 hsl(0, 0%, 100%);
         /* Prevent selection */
-        -webkit-touch-callout: none;
-        -webkit-user-select: none;
-        -khtml-user-select: none;
-        -moz-user-select: none;
-        -ms-user-select: none;
         user-select: none;
     }
+
     .arrow-key {
         font-size: 1.5em;
         padding: 0.1em 0.2em;
     }
-}
 
-.hotkeys_table th {
-    width: 245px;
-    text-align: center;
-    // aligns table name with dividing line
-}
+    th {
+        width: 245px;
+        text-align: center;
+        // aligns table name with dividing line
+    }
 
-.hotkeys_table td:not(.definition) {
-    text-align: left;
-    white-space: nowrap;
-    font-weight: bold;
-}
-.hotkeys_table td:not(.definition) :not(kbd) {
-    font-size: 14px;
+    td:not(.definition) {
+        text-align: left;
+        white-space: nowrap;
+        font-weight: bold;
+
+        :not(kbd) {
+            font-size: 14px;
+        }
+    }
 }
 
 #keyboard-shortcuts table {
@@ -123,25 +123,27 @@
 }
 
 @media only screen and (max-width: 768px) {
-    .informational-overlays .overlay-content {
-        width: calc(100% - 20px);
-    }
+    .informational-overlays {
+        .overlay-content {
+            width: calc(100% - 20px);
+        }
 
-    .informational-overlays .tab-switcher.large .ind-tab {
-        width: 100%;
-    }
+        .tab-switcher {
+            display: flex;
 
-    .informational-overlays .tab-switcher {
-        display: flex;
-    }
+            &.large .ind-tab {
+                width: 100%;
+            }
+        }
 
-    .informational-overlays .table.table-condensed.table-striped {
-        margin-left: auto;
-        margin-right: auto;
-    }
+        .table.table-condensed.table-striped {
+            margin-left: auto;
+            margin-right: auto;
+        }
 
-    .informational-overlays .hotkeys_table {
-        width: 100%;
-        display: table;
+        .hotkeys_table {
+            width: 100%;
+            display: table;
+        }
     }
 }

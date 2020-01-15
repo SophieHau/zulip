@@ -4,9 +4,7 @@ import os
 import subprocess
 import sys
 
-if False:
-    # See https://zulip.readthedocs.io/en/latest/testing/mypy.html#mypy-in-production-scripts
-    from typing import Set
+from typing import Set
 
 ZULIP_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(ZULIP_PATH)
@@ -61,7 +59,7 @@ def main():
     deployments_to_purge = get_deployments_to_be_purged(deployments_to_keep)
 
     may_be_perform_purging(
-        deployments_to_purge, deployments_to_keep, "deployment", args.dry_run, args.verbose)
+        deployments_to_purge, deployments_to_keep, "deployment", args.dry_run, args.verbose, True)
 
     if not args.dry_run:
         print("Deployments cleaned successfully...")

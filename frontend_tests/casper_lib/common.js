@@ -1,7 +1,4 @@
 var util = require("util");
-var common = (function () {
-
-var exports = {};
 
 var test_credentials = require('../../var/casper/test_credentials.js').test_credentials;
 
@@ -215,7 +212,7 @@ exports.pm_recipient = {
 
     expect: function (expected_value) {
         var displayed_recipients = casper.evaluate(function () {
-            return compose_state.recipient();
+            return compose_state.private_message_recipient();
         });
         casper.test.assertEquals(displayed_recipients, expected_value);
     },
@@ -382,14 +379,3 @@ exports.un_narrow = function () {
     }
     common.keypress(27); // Esc
 };
-
-return exports;
-
-}());
-
-// For inclusion with CasperJS
-try {
-    exports.common = common;
-} catch (e) {
-    // continue regardless of error
-}

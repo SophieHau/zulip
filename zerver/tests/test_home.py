@@ -1,5 +1,5 @@
 import datetime
-import re
+import lxml.html
 import ujson
 
 from django.http import HttpResponse
@@ -41,7 +41,7 @@ class HomeTest(ZulipTestCase):
             'Welcome to Zulip',
             # Verify that the app styles get included
             'app-stubentry.js',
-            'var page_params',
+            'data-params',
         ]
 
         # Keep this list sorted!!!
@@ -151,6 +151,7 @@ class HomeTest(ZulipTestCase):
             "realm_google_hangouts_domain",
             "realm_icon_source",
             "realm_icon_url",
+            "realm_incoming_webhook_bots",
             "realm_inline_image_preview",
             "realm_inline_url_embed_preview",
             "realm_invite_by_admins_only",
@@ -174,11 +175,13 @@ class HomeTest(ZulipTestCase):
             "realm_password_auth_enabled",
             "realm_plan_type",
             "realm_presence_disabled",
+            "realm_private_message_policy",
             "realm_push_notifications_enabled",
             "realm_send_welcome_emails",
             "realm_signup_notifications_stream_id",
             "realm_upload_quota",
             "realm_uri",
+            "realm_user_group_edit_policy",
             "realm_user_groups",
             "realm_users",
             "realm_video_chat_provider",
@@ -216,6 +219,7 @@ class HomeTest(ZulipTestCase):
             "user_id",
             "user_status",
             "warn_no_email",
+            "wildcard_mentions_notify",
             "zulip_version",
         ]
 
@@ -239,9 +243,11 @@ class HomeTest(ZulipTestCase):
         with queries_captured() as queries:
             with patch('zerver.lib.cache.cache_set') as cache_mock:
                 result = self._get_home_page(stream='Denmark')
+        self.assertEqual(set(result["Cache-Control"].split(", ")),
+                         {"must-revalidate", "no-store", "no-cache"})
 
-        self.assert_length(queries, 45)
-        self.assert_length(cache_mock.call_args_list, 7)
+        self.assert_length(queries, 42)
+        self.assert_length(cache_mock.call_args_list, 5)
 
         html = result.content.decode('utf-8')
 
@@ -306,7 +312,7 @@ class HomeTest(ZulipTestCase):
                 result = self._get_home_page()
                 self.assertEqual(result.status_code, 200)
                 self.assert_length(cache_mock.call_args_list, 6)
-            self.assert_length(queries, 42)
+            self.assert_length(queries, 40)
 
     @slow("Creates and subscribes 10 users in a loop.  Should use bulk queries.")
     def test_num_queries_with_streams(self) -> None:
@@ -338,7 +344,7 @@ class HomeTest(ZulipTestCase):
         with queries_captured() as queries2:
             result = self._get_home_page()
 
-        self.assert_length(queries2, 39)
+        self.assert_length(queries2, 37)
 
         # Do a sanity check that our new streams were in the payload.
         html = result.content.decode('utf-8')
@@ -352,10 +358,9 @@ class HomeTest(ZulipTestCase):
         return result
 
     def _get_page_params(self, result: HttpResponse) -> Dict[str, Any]:
-        html = result.content.decode('utf-8')
-        lines = html.split('\n')
-        page_params_line = [l for l in lines if re.match(r'^\s*var page_params', l)][0]
-        page_params_json = page_params_line.split(' = ')[1].rstrip(';')
+        doc = lxml.html.document_fromstring(result.content)
+        [div] = doc.xpath("//div[@id='page-params']")
+        page_params_json = div.get("data-params")
         page_params = ujson.loads(page_params_json)
         return page_params
 
@@ -432,7 +437,7 @@ class HomeTest(ZulipTestCase):
         self.login(email)
         with patch('logging.warning') as mock:
             result = self._get_home_page()
-        mock.assert_called_once_with('hamlet@zulip.com has invalid pointer 999999')
+        mock.assert_called_once_with('User %s has invalid pointer 999999' % (user_profile.id,))
         self._sanity_check(result)
 
     def test_topic_narrow(self) -> None:
@@ -442,6 +447,8 @@ class HomeTest(ZulipTestCase):
         self._sanity_check(result)
         html = result.content.decode('utf-8')
         self.assertIn('lunch', html)
+        self.assertEqual(set(result["Cache-Control"].split(", ")),
+                         {"must-revalidate", "no-store", "no-cache"})
 
     def test_notifications_stream(self) -> None:
         email = self.example_email("hamlet")
@@ -578,6 +585,7 @@ class HomeTest(ZulipTestCase):
                 is_admin=False,
                 email='emailgateway@zulip.com',
                 full_name='Email Gateway',
+                bot_owner_id=None,
                 is_bot=True
             ),
             dict(
@@ -585,6 +593,7 @@ class HomeTest(ZulipTestCase):
                 is_admin=False,
                 email='feedback@zulip.com',
                 full_name='Zulip Feedback Bot',
+                bot_owner_id=None,
                 is_bot=True
             ),
             dict(
@@ -592,6 +601,7 @@ class HomeTest(ZulipTestCase):
                 is_admin=False,
                 email=notification_bot.email,
                 full_name='Notification Bot',
+                bot_owner_id=None,
                 is_bot=True
             ),
             dict(
@@ -599,6 +609,7 @@ class HomeTest(ZulipTestCase):
                 is_admin=False,
                 email='welcome-bot@zulip.com',
                 full_name='Welcome Bot',
+                bot_owner_id=None,
                 is_bot=True
             ),
         ], key=by_email))
@@ -630,7 +641,7 @@ class HomeTest(ZulipTestCase):
         html = result.content.decode('utf-8')
         self.assertNotIn('Invite more users', html)
 
-        user_profile.is_realm_admin = True
+        user_profile.role = UserProfile.ROLE_REALM_ADMINISTRATOR
         user_profile.save()
         result = self._get_home_page()
         html = result.content.decode('utf-8')
@@ -668,9 +679,9 @@ class HomeTest(ZulipTestCase):
         self.assertIn('Billing', result_html)
 
         # billing admin, with CustomerPlan -> show billing link
-        user.is_realm_admin = False
+        user.role = UserProfile.ROLE_REALM_ADMINISTRATOR
         user.is_billing_admin = True
-        user.save(update_fields=['is_realm_admin', 'is_billing_admin'])
+        user.save(update_fields=['role', 'is_billing_admin'])
         result_html = self._get_home_page().content.decode('utf-8')
         self.assertIn('Billing', result_html)
 
@@ -788,9 +799,9 @@ class HomeTest(ZulipTestCase):
 
     def test_message_sent_time(self) -> None:
         epoch_seconds = 1490472096
-        pub_date = datetime.datetime.fromtimestamp(epoch_seconds)
+        date_sent = datetime.datetime.fromtimestamp(epoch_seconds)
         user_message = MagicMock()
-        user_message.message.pub_date = pub_date
+        user_message.message.date_sent = date_sent
         self.assertEqual(sent_time_in_epoch_seconds(user_message), epoch_seconds)
 
     def test_subdomain_homepage(self) -> None:

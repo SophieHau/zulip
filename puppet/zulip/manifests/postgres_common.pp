@@ -6,8 +6,8 @@ class zulip::postgres_common {
       $postgres_packages = [
         # The database itself
         $postgresql,
-        # tools for database monitoring
-        'ptop',
+        # tools for database monitoring; formerly ptop
+        'pgtop',
         # Needed just to support adding postgres user to 'zulip' group
         'ssl-cert',
         # our dictionary

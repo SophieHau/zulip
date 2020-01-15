@@ -62,6 +62,7 @@ class TranslationTestCase(ZulipTestCase):
 
     def tearDown(self) -> None:
         translation.activate(settings.LANGUAGE_CODE)
+        super().tearDown()
 
     # e.g. self.client_post(url) if method is "post"
     def fetch(self, method: str, url: str, expected_status: int, **kwargs: Any) -> HttpResponse:
@@ -93,7 +94,7 @@ class TranslationTestCase(ZulipTestCase):
         for lang, word in languages:
             # Applying str function to LANGUAGE_COOKIE_NAME to convert unicode
             # into an ascii otherwise SimpleCookie will raise an exception
-            self.client.cookies = SimpleCookie({str(settings.LANGUAGE_COOKIE_NAME): lang})  # type: ignore # https://github.com/python/typeshed/issues/1476
+            self.client.cookies = SimpleCookie({str(settings.LANGUAGE_COOKIE_NAME): lang})
 
             response = self.fetch('get', '/integrations/', 200)
             self.assert_in_response(word, response)
@@ -113,6 +114,7 @@ class TranslationTestCase(ZulipTestCase):
 class JsonTranslationTestCase(ZulipTestCase):
     def tearDown(self) -> None:
         translation.activate(settings.LANGUAGE_CODE)
+        super().tearDown()
 
     @mock.patch('zerver.lib.request._')
     def test_json_error(self, mock_gettext: Any) -> None:

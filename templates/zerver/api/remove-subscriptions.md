@@ -40,20 +40,11 @@ zulip(config).then((client) => {
 
 {tab|curl}
 
-``` curl
-curl -X "DELETE" {{ api_url }}/v1/users/me/subscriptions \
-    -u BOT_EMAIL_ADDRESS:BOT_API_KEY \
-    -d 'subscriptions=["Denmark"]'
-```
+{generate_code_example(curl, include=["subscriptions"])|/users/me/subscriptions:delete|example}
 
 You may specify the `principals` argument like so:
 
-``` curl
-curl -X "DELETE" {{ api_url }}/v1/users/me/subscriptions \
-    -u BOT_EMAIL_ADDRESS:BOT_API_KEY \
-    -d 'subscriptions=["Denmark"]' \
-    -d 'principals=["ZOE@zulip.com"]'
-```
+{generate_code_example(curl)|/users/me/subscriptions:delete|example}
 
 **Note**: Unsubscribing another user from a stream requires
 administrative privileges.
@@ -69,7 +60,7 @@ administrative privileges.
 * `removed`: A list of the names of streams which were unsubscribed from as
   a result of the query.
 
-* `not_subscribed`: A list of the names of streams that the user is already
+* `not_removed`: A list of the names of streams that the user is already
   unsubscribed from, and hence doesn't need to be unsubscribed.
 
 #### Example response

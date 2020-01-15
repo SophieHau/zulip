@@ -1,9 +1,5 @@
-var panels = (function () {
-
-var exports = {};
-
-var resize_app = function () {
-    var panels_height = $("#panels").height();
+const resize_app = function () {
+    const panels_height = $("#panels").height();
     $("body > .app").height("calc(100% - " + panels_height + "px)");
     // the floating recipient bar is usually positioned 10px below the
     // header, so add that to the panels height to get the new `top` value.
@@ -12,11 +8,11 @@ var resize_app = function () {
 
 exports.resize_app = resize_app;
 
-var show_step = function ($process, step) {
+const show_step = function ($process, step) {
     $process.find("[data-step]").hide().filter("[data-step=" + step + "]").show();
 };
 
-var get_step = function ($process) {
+const get_step = function ($process) {
     return $process.find("[data-step]").filter(":visible").data("step");
 };
 
@@ -24,18 +20,18 @@ exports.initialize = function () {
     // if email has not been set up and the user is the admin, display a warning
     // to tell them to set up an email server.
     if (page_params.warn_no_email === true && page_params.is_admin) {
-        panels.open($("[data-process='email-server']"));
+        exports.open($("[data-process='email-server']"));
     } else {
-        panels.open($("[data-process='notifications']"));
+        exports.open($("[data-process='notifications']"));
     }
 };
 
 exports.open = function ($process) {
-    var ls = localstorage();
+    const ls = localstorage();
 
     $("[data-process]").hide();
 
-    var should_show_notifications =
+    let should_show_notifications =
         // notifications *basically* don't work on any mobile platforms, so don't
         // event show the banners. This prevents trying to access things that
         // don't exist like `Notification.permission`.
@@ -88,11 +84,4 @@ exports.open = function ($process) {
     });
 };
 
-return exports;
-
-}());
-
-if (typeof module !== 'undefined') {
-    module.exports = panels;
-}
-window.panels = panels;
+window.panels = exports;

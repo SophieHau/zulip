@@ -1,4 +1,3 @@
-
 from argparse import ArgumentParser
 from typing import Any
 
@@ -7,6 +6,7 @@ from django.core.management.base import CommandError
 from zerver.lib.actions import do_mark_all_as_read
 from zerver.lib.management import ZulipBaseCommand
 from zerver.models import Message
+
 
 class Command(ZulipBaseCommand):
     help = """Bankrupt one or many users."""

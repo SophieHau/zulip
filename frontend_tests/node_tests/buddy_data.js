@@ -2,10 +2,12 @@ const _page_params = {};
 
 set_global('page_params', _page_params);
 set_global('i18n', global.stub_i18n);
+set_global('$', global.make_zjquery());
 zrequire('people');
 zrequire('presence');
 zrequire('util');
 zrequire('user_status');
+
 zrequire('buddy_data');
 set_global('timerender', {});
 
@@ -36,6 +38,16 @@ const bot = {
     full_name: 'Red Herring Bot',
     email: 'bot@example.com',
     is_bot: true,
+    bot_owner_id: null,
+};
+
+const bot_with_owner = {
+    user_id: 55556,
+    full_name: 'Blue Herring Bot',
+    email: 'bot_with_owner@example.com',
+    is_bot: true,
+    bot_owner_id: 1001,
+    bot_owner_full_name: 'Human Myself',
 };
 
 function make_people() {
@@ -49,6 +61,7 @@ function make_people() {
     });
 
     people.add_in_realm(bot);
+    people.add_in_realm(bot_with_owner);
     people.add_in_realm(selma);
     people.add_in_realm(me);
     people.add_in_realm(old_user);
@@ -113,13 +126,56 @@ run_test('buddy_status', () => {
     assert.equal(buddy_data.buddy_status(me.user_id), 'active');
 });
 
-run_test('user_title', () => {
-    assert.equal(buddy_data.user_title(me.user_id), 'Human Myself is active');
+run_test('title_data', () => {
+    // Groups
+    let is_group = true;
+    const user_ids_string = "9999,1000";
+    let expected_group_data = {
+        first_line: 'Human Selma, Old User',
+        second_line: '',
+        third_line: '',
+    };
+    assert.deepEqual(buddy_data.get_title_data(user_ids_string, is_group), expected_group_data);
+
+    is_group = '';
+
+    // Bots with owners.
+    expected_group_data = {
+        first_line: 'Blue Herring Bot',
+        second_line: 'translated: Owner: Human Myself',
+        third_line: '',
+    };
+    assert.deepEqual(buddy_data.get_title_data(bot_with_owner.user_id, is_group),
+                     expected_group_data);
+
+    // Bots without owners.
+    expected_group_data = {
+        first_line: 'Red Herring Bot',
+        second_line: '',
+        third_line: '',
+    };
+    assert.deepEqual(buddy_data.get_title_data(bot.user_id, is_group), expected_group_data);
+
+    // Individual Users.
     user_status.set_status_text({
         user_id: me.user_id,
         status_text: 'out to lunch',
     });
-    assert.equal(buddy_data.user_title(me.user_id), 'out to lunch');
+
+    let expected_data = {
+        first_line: 'Human Myself',
+        second_line: 'out to lunch',
+        third_line: 'translated: Active now',
+
+    };
+    assert.deepEqual(buddy_data.get_title_data(me.user_id, is_group), expected_data);
+
+    expected_data = {
+        first_line: 'Old User',
+        second_line: 'translated: Last active: translated: More than 2 weeks ago',
+        third_line: '',
+    };
+    assert.deepEqual(buddy_data.get_title_data(old_user.user_id, is_group), expected_data);
 });
 
 run_test('simple search', () => {
@@ -129,7 +185,7 @@ run_test('simple search', () => {
 });
 
 run_test('bulk_data_hacks', () => {
-    var user_ids;
+    let user_ids;
 
     // Even though we have 1000 users, we only get the 400 active
     // users.  This is a consequence of buddy_data.maybe_shrink_list.
@@ -199,7 +255,7 @@ run_test('level', () => {
 
 run_test('user_last_seen_time_status', () => {
     assert.equal(buddy_data.user_last_seen_time_status(selma.user_id),
-                 'translated: Online now');
+                 'translated: Active now');
 
     page_params.realm_is_zephyr_mirror_realm = true;
     assert.equal(buddy_data.user_last_seen_time_status(old_user.user_id),

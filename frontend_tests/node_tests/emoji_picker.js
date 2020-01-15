@@ -1,4 +1,4 @@
-zrequire('emoji_codes', 'generated/emoji/emoji_codes');
+set_global('emoji_codes', zrequire('emoji_codes', 'generated/emoji/emoji_codes'));
 zrequire('emoji');
 zrequire('emoji_picker');
 
@@ -6,7 +6,7 @@ run_test('initialize', () => {
     emoji.update_emojis({});
     emoji_picker.initialize();
 
-    var complete_emoji_catalog = _.sortBy(emoji_picker.complete_emoji_catalog, 'name');
+    const complete_emoji_catalog = _.sortBy(emoji_picker.complete_emoji_catalog, 'name');
     assert.equal(complete_emoji_catalog.length, 9);
     assert.equal(_.keys(emoji.emojis_by_name).length, 1037);
 

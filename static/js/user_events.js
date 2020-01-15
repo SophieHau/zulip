@@ -1,14 +1,10 @@
-var user_events = (function () {
-
-var exports = {};
-
 // This module is kind of small, but it will help us keep
 // server_events.js simple while breaking some circular
 // dependencies that existed when this code was in people.js.
 // (We should do bot updates here too.)
 
 exports.update_person = function update(person) {
-    var person_obj = people.get_person_from_user_id(person.user_id);
+    const person_obj = people.get_person_from_user_id(person.user_id);
 
     if (!person_obj) {
         blueslip.error("Got update_person event for unexpected user " + person.user_id);
@@ -16,8 +12,8 @@ exports.update_person = function update(person) {
     }
 
     if (_.has(person, 'new_email')) {
-        var user_id = person.user_id;
-        var new_email = person.new_email;
+        const user_id = person.user_id;
+        const new_email = person.new_email;
 
         narrow_state.update_email(user_id, new_email);
         compose.update_email(user_id, new_email);
@@ -30,7 +26,7 @@ exports.update_person = function update(person) {
     }
 
     if (_.has(person, 'delivery_email')) {
-        var delivery_email = person.delivery_email;
+        const delivery_email = person.delivery_email;
 
         if (people.is_my_user_id(person.user_id)) {
             settings_account.update_email(delivery_email);
@@ -71,7 +67,7 @@ exports.update_person = function update(person) {
     }
 
     if (_.has(person, 'avatar_url')) {
-        var url = person.avatar_url;
+        const url = person.avatar_url;
         person_obj.avatar_url = url;
 
         if (people.is_my_user_id(person.user_id)) {
@@ -97,10 +93,4 @@ exports.update_person = function update(person) {
     }
 };
 
-return exports;
-
-}());
-if (typeof module !== 'undefined') {
-    module.exports = user_events;
-}
-window.user_events = user_events;
+window.user_events = exports;

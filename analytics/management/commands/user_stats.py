@@ -7,6 +7,7 @@ from django.utils.timezone import now as timezone_now
 
 from zerver.models import Message, Realm, Stream, UserProfile, get_realm
 
+
 class Command(BaseCommand):
     help = "Generate statistics on user activity."
 
@@ -17,7 +18,7 @@ class Command(BaseCommand):
     def messages_sent_by(self, user: UserProfile, week: int) -> int:
         start = timezone_now() - datetime.timedelta(days=(week + 1)*7)
         end = timezone_now() - datetime.timedelta(days=week*7)
-        return Message.objects.filter(sender=user, pub_date__gt=start, pub_date__lte=end).count()
+        return Message.objects.filter(sender=user, date_sent__gt=start, date_sent__lte=end).count()
 
     def handle(self, *args: Any, **options: Any) -> None:
         if options['realms']:

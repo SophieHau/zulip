@@ -66,7 +66,6 @@ from zerver.lib.actions import (
     can_access_stream_user_ids,
     validate_user_access_to_subscribers_helper,
     get_average_weekly_stream_traffic, round_to_2_significant_digits,
-    get_stream_recipients,
 )
 
 from zerver.views.streams import (
@@ -291,7 +290,7 @@ class TestCreateStreams(ZulipTestCase):
         self.assertEqual(final_message_count - initial_message_count, 2)
         # 4 UserMessages per subscriber: One for each of the subscribers, plus 1 for
         # each user in the notifications stream.
-        announce_stream_subs = Subscription.objects.filter(recipient=get_stream_recipients([announce_stream.id])[0])
+        announce_stream_subs = Subscription.objects.filter(recipient=announce_stream.recipient)
         self.assertEqual(final_usermessage_count - initial_usermessage_count,
                          4 + announce_stream_subs.count())
 
@@ -987,11 +986,11 @@ class StreamAdminTest(ZulipTestCase):
         those you aren't on.
         """
         result = self.attempt_unsubscribe_of_principal(
-            query_count=22, is_admin=True, is_subbed=True, invite_only=False,
+            query_count=21, is_admin=True, is_subbed=True, invite_only=False,
             other_user_subbed=True)
         json = self.assert_json_success(result)
         self.assertEqual(len(json["removed"]), 1)
-        self.assertEqual(len(json["not_subscribed"]), 0)
+        self.assertEqual(len(json["not_removed"]), 0)
 
     def test_admin_remove_others_from_subbed_private_stream(self) -> None:
         """
@@ -999,11 +998,11 @@ class StreamAdminTest(ZulipTestCase):
         are on.
         """
         result = self.attempt_unsubscribe_of_principal(
-            query_count=22, is_admin=True, is_subbed=True, invite_only=True,
+            query_count=21, is_admin=True, is_subbed=True, invite_only=True,
             other_user_subbed=True)
         json = self.assert_json_success(result)
         self.assertEqual(len(json["removed"]), 1)
-        self.assertEqual(len(json["not_subscribed"]), 0)
+        self.assertEqual(len(json["not_removed"]), 0)
 
     def test_admin_remove_others_from_unsubbed_private_stream(self) -> None:
         """
@@ -1011,11 +1010,11 @@ class StreamAdminTest(ZulipTestCase):
         streams you aren't on.
         """
         result = self.attempt_unsubscribe_of_principal(
-            query_count=22, is_admin=True, is_subbed=False, invite_only=True,
+            query_count=21, is_admin=True, is_subbed=False, invite_only=True,
             other_user_subbed=True, other_sub_users=[self.example_user("othello")])
         json = self.assert_json_success(result)
         self.assertEqual(len(json["removed"]), 1)
-        self.assertEqual(len(json["not_subscribed"]), 0)
+        self.assertEqual(len(json["not_removed"]), 0)
 
     def test_create_stream_policy_setting(self) -> None:
         """
@@ -1155,7 +1154,7 @@ class StreamAdminTest(ZulipTestCase):
             other_user_subbed=False)
         json = self.assert_json_success(result)
         self.assertEqual(len(json["removed"]), 0)
-        self.assertEqual(len(json["not_subscribed"]), 1)
+        self.assertEqual(len(json["not_removed"]), 1)
 
     def test_remove_invalid_user(self) -> None:
         """
@@ -1611,6 +1610,28 @@ class SubscriptionPropertiesTest(ZulipTestCase):
         self.assert_json_error(
             result, "value key is missing from subscription_data[0]")
 
+    def test_set_stream_wildcard_mentions_notify(self) -> None:
+        """
+        A POST request to /api/v1/users/me/subscriptions/properties with wildcard_mentions_notify
+        sets the property.
+        """
+        test_user = self.example_user('hamlet')
+        test_email = test_user.email
+        self.login(test_email)
+
+        subs = gather_subscriptions(test_user)[0]
+        sub = subs[0]
+        result = self.api_post(test_email, "/api/v1/users/me/subscriptions/properties",
+                               {"subscription_data": ujson.dumps([{"property": "wildcard_mentions_notify",
+                                                                   "stream_id": sub["stream_id"],
+                                                                   "value": True}])})
+
+        self.assert_json_success(result)
+
+        updated_sub = get_subscription(sub['name'], test_user)
+        self.assertIsNotNone(updated_sub)
+        self.assertEqual(updated_sub.wildcard_mentions_notify, True)
+
     def test_set_pin_to_top(self) -> None:
         """
         A POST request to /api/v1/users/me/subscriptions/properties with stream_id and
@@ -1751,6 +1772,15 @@ class SubscriptionPropertiesTest(ZulipTestCase):
                                                                    "stream_id": subs[0]["stream_id"]}])})
         self.assert_json_error(result,
                                '%s is not a boolean' % (property_name,))
+
+        property_name = "wildcard_mentions_notify"
+        result = self.api_post(test_email, "/api/v1/users/me/subscriptions/properties",
+                               {"subscription_data": ujson.dumps([{"property": property_name,
+                                                                   "value": "bad",
+                                                                   "stream_id": subs[0]["stream_id"]}])})
+
+        self.assert_json_error(result,
+                               "%s is not a boolean" % (property_name,))
 
         property_name = "color"
         result = self.api_post(test_email, "/api/v1/users/me/subscriptions/properties",
@@ -1985,6 +2015,7 @@ class SubscriptionAPITest(ZulipTestCase):
         All tests will be logged in as hamlet. Also save various useful values
         as attributes that tests can access.
         """
+        super().setUp()
         self.user_profile = self.example_user('hamlet')
         self.test_email = self.user_profile.email
         self.test_user = self.user_profile
@@ -2268,18 +2299,18 @@ class SubscriptionAPITest(ZulipTestCase):
 
     def test_can_create_streams(self) -> None:
         othello = self.example_user('othello')
-        othello.is_realm_admin = True
+        othello.role = UserProfile.ROLE_REALM_ADMINISTRATOR
         self.assertTrue(othello.can_create_streams())
 
-        othello.is_realm_admin = False
+        othello.role = UserProfile.ROLE_MEMBER
         othello.realm.create_stream_policy = Realm.CREATE_STREAM_POLICY_ADMINS
         self.assertFalse(othello.can_create_streams())
 
         othello.realm.create_stream_policy = Realm.CREATE_STREAM_POLICY_MEMBERS
-        othello.is_guest = True
+        othello.role = UserProfile.ROLE_GUEST
         self.assertFalse(othello.can_create_streams())
 
-        othello.is_guest = False
+        othello.role = UserProfile.ROLE_MEMBER
         othello.realm.waiting_period_threshold = 1000
         othello.realm.create_stream_policy = Realm.CREATE_STREAM_POLICY_WAITING_PERIOD
         othello.date_joined = timezone_now() - timedelta(days=(othello.realm.waiting_period_threshold - 1))
@@ -2402,7 +2433,7 @@ class SubscriptionAPITest(ZulipTestCase):
                     streams_to_sub,
                     dict(principals=ujson.dumps([user1.email, user2.email])),
                 )
-        self.assert_length(queries, 44)
+        self.assert_length(queries, 43)
 
         self.assert_length(events, 7)
         for ev in [x for x in events if x['event']['type'] not in ('message', 'stream')]:
@@ -2430,7 +2461,7 @@ class SubscriptionAPITest(ZulipTestCase):
                     streams_to_sub,
                     dict(principals=ujson.dumps([self.test_email])),
                 )
-        self.assert_length(queries, 16)
+        self.assert_length(queries, 14)
 
         self.assert_length(events, 2)
         add_event, add_peer_event = events
@@ -2443,7 +2474,7 @@ class SubscriptionAPITest(ZulipTestCase):
         )
 
         self.assertNotIn(self.example_user('polonius').id, add_peer_event['users'])
-        self.assertEqual(len(add_peer_event['users']), 16)
+        self.assertEqual(len(add_peer_event['users']), 10)
         self.assertEqual(add_peer_event['event']['type'], 'subscription')
         self.assertEqual(add_peer_event['event']['op'], 'peer_add')
         self.assertEqual(add_peer_event['event']['user_id'], self.user_profile.id)
@@ -2475,7 +2506,7 @@ class SubscriptionAPITest(ZulipTestCase):
         # We don't send a peer_add event to othello
         self.assertNotIn(user_profile.id, add_peer_event['users'])
         self.assertNotIn(self.example_user('polonius').id, add_peer_event['users'])
-        self.assertEqual(len(add_peer_event['users']), 16)
+        self.assertEqual(len(add_peer_event['users']), 10)
         self.assertEqual(add_peer_event['event']['type'], 'subscription')
         self.assertEqual(add_peer_event['event']['op'], 'peer_add')
         self.assertEqual(add_peer_event['event']['user_id'], user_profile.id)
@@ -2727,7 +2758,7 @@ class SubscriptionAPITest(ZulipTestCase):
         # Make sure Zephyr mirroring realms such as MIT do not get
         # any tornado subscription events
         self.assert_length(events, 0)
-        self.assert_length(queries, 9)
+        self.assert_length(queries, 8)
 
         events = []
         with tornado_redirected_to_list(events):
@@ -2753,7 +2784,7 @@ class SubscriptionAPITest(ZulipTestCase):
                 dict(principals=ujson.dumps([self.test_email])),
             )
         # Make sure we don't make O(streams) queries
-        self.assert_length(queries, 21)
+        self.assert_length(queries, 19)
 
     def test_subscriptions_add_for_principal(self) -> None:
         """
@@ -2839,7 +2870,7 @@ class SubscriptionAPITest(ZulipTestCase):
 
         {"msg": "",
          "removed": ["Denmark", "Scotland", "Verona"],
-         "not_subscribed": ["Rome"], "result": "success"}
+         "not_removed": ["Rome"], "result": "success"}
         """
         result = self.client_delete("/json/users/me/subscriptions",
                                     {"subscriptions": ujson.dumps(subscriptions)})
@@ -2868,7 +2899,7 @@ class SubscriptionAPITest(ZulipTestCase):
         try_to_remove = not_subbed[:3]  # attempt to remove up to 3 streams not already subbed to
         streams_to_remove.extend(try_to_remove)
         self.helper_check_subs_before_and_after_remove(streams_to_remove,
-                                                       {"removed": self.streams[1:], "not_subscribed": try_to_remove},
+                                                       {"removed": self.streams[1:], "not_removed": try_to_remove},
                                                        self.test_email, [self.streams[0]], self.test_realm)
 
     def test_subscriptions_remove_fake_stream(self) -> None:
@@ -3142,7 +3173,7 @@ class SubscriptionAPITest(ZulipTestCase):
                 [new_streams[0]],
                 dict(principals=ujson.dumps([user1.email, user2.email])),
             )
-        self.assert_length(queries, 44)
+        self.assert_length(queries, 43)
 
         # Test creating private stream.
         with queries_captured() as queries:
@@ -3152,7 +3183,7 @@ class SubscriptionAPITest(ZulipTestCase):
                 dict(principals=ujson.dumps([user1.email, user2.email])),
                 invite_only=True,
             )
-        self.assert_length(queries, 39)
+        self.assert_length(queries, 38)
 
         # Test creating a public stream with announce when realm has a notification stream.
         notifications_stream = get_stream(self.streams[0], self.test_realm)
@@ -3298,6 +3329,7 @@ class GetPublicStreamsTest(ZulipTestCase):
 
 class StreamIdTest(ZulipTestCase):
     def setUp(self) -> None:
+        super().setUp()
         self.user_profile = self.example_user('hamlet')
         self.email = self.user_profile.email
         self.login(self.email)
@@ -3406,6 +3438,7 @@ class InviteOnlyStreamTest(ZulipTestCase):
 class GetSubscribersTest(ZulipTestCase):
 
     def setUp(self) -> None:
+        super().setUp()
         self.user_profile = self.example_user('hamlet')
         self.email = self.user_profile.email
         self.login(self.email)
@@ -3515,13 +3548,14 @@ class GetSubscribersTest(ZulipTestCase):
         self.assert_user_got_subscription_notification(msg)
 
         with queries_captured() as queries:
-            subscriptions = gather_subscriptions(self.user_profile)
-        self.assertTrue(len(subscriptions[0]) >= 11)
-        for sub in subscriptions[0]:
+            subscribed_streams, _ = gather_subscriptions(
+                self.user_profile, include_subscribers=True)
+        self.assertTrue(len(subscribed_streams) >= 11)
+        for sub in subscribed_streams:
             if not sub["name"].startswith("stream_"):
                 continue
             self.assertTrue(len(sub["subscribers"]) == len(users_to_subscribe))
-        self.assert_length(queries, 7)
+        self.assert_length(queries, 6)
 
     @slow("common_subscribe_to_streams is slow")
     def test_never_subscribed_streams(self) -> None:
@@ -3575,7 +3609,7 @@ class GetSubscribersTest(ZulipTestCase):
             with queries_captured() as queries:
                 sub_data = gather_subscriptions_helper(self.user_profile)
             never_subscribed = sub_data[2]
-            self.assert_length(queries, 6)
+            self.assert_length(queries, 5)
 
             # Ignore old streams.
             never_subscribed = [
@@ -3595,7 +3629,7 @@ class GetSubscribersTest(ZulipTestCase):
 
         # Send private stream subscribers to all realm admins.
         def test_admin_case() -> None:
-            self.user_profile.is_realm_admin = True
+            self.user_profile.role = UserProfile.ROLE_REALM_ADMINISTRATOR
             # Test realm admins can get never subscribed private stream's subscribers.
             never_subscribed = get_never_subscribed()
 
@@ -3695,10 +3729,11 @@ class GetSubscribersTest(ZulipTestCase):
         self.assert_json_success(ret)
 
         with queries_captured() as queries:
-            subscriptions = gather_subscriptions(mit_user_profile)
+            subscribed_streams, _ = gather_subscriptions(
+                mit_user_profile, include_subscribers=True)
 
-        self.assertTrue(len(subscriptions[0]) >= 2)
-        for sub in subscriptions[0]:
+        self.assertTrue(len(subscribed_streams) >= 2)
+        for sub in subscribed_streams:
             if not sub["name"].startswith("mit_"):
                 raise AssertionError("Unexpected stream!")
             if sub["name"] == "mit_invite_only":
@@ -3752,11 +3787,12 @@ class GetSubscribersTest(ZulipTestCase):
     def test_json_get_subscribers(self) -> None:
         """
         json_get_subscribers in zerver/views/streams.py
-        also returns the list of subscribers for a stream.
+        also returns the list of subscribers for a stream, when requested.
         """
         stream_name = gather_subscriptions(self.user_profile)[0][0]['name']
         stream_id = get_stream(stream_name, self.user_profile.realm).id
-        expected_subscribers = gather_subscriptions(self.user_profile)[0][0]['subscribers']
+        expected_subscribers = gather_subscriptions(
+            self.user_profile, include_subscribers=True)[0][0]['subscribers']
         result = self.client_get("/json/streams/%d/members" % (stream_id,))
         self.assert_json_success(result)
         result_dict = result.json()

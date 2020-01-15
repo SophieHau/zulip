@@ -11,7 +11,7 @@ but for other files, we are quite thorough about checking semantic
 correctness.
 
 Obviously, a large reason for linting code is to enforce the [Zulip
-coding standards](../contributing/code-style.html).  But we also use the linters to
+coding standards](../contributing/code-style.md).  But we also use the linters to
 prevent common coding errors.
 
 We borrow some open source tools for much of our linting, and the links
@@ -51,12 +51,15 @@ note are:
 Finally, you can rely on our Travis CI setup to run linters for you, but
 it is good practice to run lint checks locally.
 
-**Important:** We provide a
-  [Git pre-commit hook](http://localhost:9991/docs/git/zulip-tools.html#set-up-git-repo-script)
-  that can automatically run `tools/lint` on just the files that
-  changed (in a few 100ms) whenever you make a commit.  This can save
-  you a lot of time, by automatically detecting linter errors as you
-  make them.
+```eval_rst
+.. important::
+    We provide a
+    `Git pre-commit hook <../git/zulip-tools.html#set-up-git-repo-script>`_
+    that can automatically run ``tools/lint`` on just the files that
+    changed (in a few 100ms) whenever you make a commit.  This can save
+    you a lot of time, by automatically detecting linter errors as you
+    make them.
+```
 
 **Note:** The linters only check files that git tracks. Remember to `git add`
 new files before running lint checks.
@@ -67,7 +70,7 @@ later in this document.
 
 ## General considerations
 
-Once you have read the [Zulip coding guidelines](../contributing/code-style.html), you can
+Once you have read the [Zulip coding guidelines](../contributing/code-style.md), you can
 be pretty confident that 99% of the code that you write will pass through
 the linters fine, as long as you are thorough about keeping your code clean.
 And, of course, for minor oversights, `lint` is your friend, not your foe.
@@ -79,7 +82,7 @@ extreme cases, but often it can be a simple matter of writing your code
 in a slightly different style to appease the linter.  If you have
 problems getting something to lint, you can submit an unfinished PR
 and ask the reviewer to help you work through the lint problem, or you
-can find other people in the [Zulip Community](../contributing/chat-zulip-org.html)
+can find other people in the [Zulip Community](../contributing/chat-zulip-org.md)
 to help you.
 
 Also, bear in mind that 100% of the lint code is open source, so if you
@@ -87,7 +90,7 @@ find limitations in either the Zulip home-grown stuff or our third party
 tools, feedback will be highly appreciated.
 
 Finally, one way to clean up your code is to thoroughly exercise it
-with tests.  The [Zulip test documentation](../testing/testing.html)
+with tests.  The [Zulip test documentation](../testing/testing.md)
 describes our test system in detail.
 
 ## Lint checks
@@ -104,10 +107,10 @@ following checks:
 - Check CSS for parsability and formatting.
 - Check JavaScript code for addClass calls.
 - Running `mypy` to check static types in Python code.  Our
-  [documentation on using mypy](../testing/mypy.html) covers mypy in
+  [documentation on using mypy](../testing/mypy.md) covers mypy in
   more detail.
 - Running `tsc` to compile TypeScript code.  Our [documentation on
-  TypeScript](typescript.html) covers TypeScript in more detail.
+  TypeScript](typescript.md) covers TypeScript in more detail.
 
 The rest of this document pertains to the checks that occur in `./tools/lint`.
 
@@ -182,14 +185,6 @@ that we exempt may be deemed not worthwhile to fix.
 We check our JavaScript code in a few different ways:
 - We run eslint.
 - We perform custom Zulip regex checks on the code.
-- We verify that all addClass calls, with a few exceptions, explicitly
-  contain a CSS class.
-
-The last check happens via a call to `./tools/find-add-class`.  This
-particular check is a work in progress, as we are trying to evolve a
-more rigorous system for weeding out legacy CSS styles, and the ability
-to quickly introspect our JS code for `addClass` calls is part of our
-vision.
 
 #### Puppet manifests
 

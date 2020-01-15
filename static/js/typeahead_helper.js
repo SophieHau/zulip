@@ -1,37 +1,31 @@
-var render_typeahead_list_item = require('../templates/typeahead_list_item.hbs');
-var Dict = require('./dict').Dict;
-
-var typeahead_helper = (function () {
-
-var exports = {};
+const render_typeahead_list_item = require('../templates/typeahead_list_item.hbs');
+const Dict = require('./dict').Dict;
 
 // Returns an array of private message recipients, removing empty elements.
 // For example, "a,,b, " => ["a", "b"]
 exports.get_cleaned_pm_recipients = function (query_string) {
-    var recipients = util.extract_pm_recipients(query_string);
+    let recipients = util.extract_pm_recipients(query_string);
     recipients = _.filter(recipients, function (elem) {
         return elem.match(/\S/);
     });
     return recipients;
 };
 
-// Loosely based on Bootstrap's default highlighter, but with escaping added.
-exports.highlight_with_escaping = function (query, item) {
-    // query: The text currently in the searchbox
-    // item: The string we are trying to appropriately highlight
+exports.build_highlight_regex = function (query) {
+    // the regex below is based on bootstrap code
     query = query.replace(/[\-\[\]{}()*+?.,\\\^$|#\s]/g, '\\$&');
-    var regex = new RegExp('(' + query + ')', 'ig');
-    // The result of the split will include the query term, because our regex
-    // has parens in it.
-    // (as per https://developer.mozilla.org/en-US/docs/JavaScript/Reference/Global_Objects/String/split)
-    // However, "not all browsers support this capability", so this is a place to look
-    // if we have an issue here in, e.g. IE.
-    var pieces = item.split(regex);
+    const regex = new RegExp('(' + query + ')', 'ig');
+    return regex;
+};
+
+exports.highlight_with_escaping_and_regex = function (regex, item) {
     // We need to assemble this manually (as opposed to doing 'join') because we need to
     // (1) escape all the pieces and (2) the regex is case-insensitive, and we need
     // to know the case of the content we're replacing (you can't just use a bolded
     // version of 'query')
-    var result = "";
+
+    const pieces = item.split(regex);
+    let result = "";
     _.each(pieces, function (piece) {
         if (piece.match(regex)) {
             result += "<strong>" + Handlebars.Utils.escapeExpression(piece) + "</strong>";
@@ -42,34 +36,23 @@ exports.highlight_with_escaping = function (query, item) {
     return result;
 };
 
-exports.highlight_with_escaping_and_regex = function (regex, item) {
-    var pieces = item.split(regex);
-    var result = "";
-    _.each(pieces, function (piece) {
-        if (piece.match(regex)) {
-            result += "<strong>" + Handlebars.Utils.escapeExpression(piece) + "</strong>";
-        } else {
-            result += Handlebars.Utils.escapeExpression(piece);
-        }
-    });
-    return result;
-};
-
-exports.highlight_query_in_phrase = function (query, phrase) {
-    var i;
+exports.make_query_highlighter = function (query) {
+    let i;
     query = query.toLowerCase();
-    query = query.replace(/[\-\[\]{}()*+?.,\\\^$|#\s]/g, '\\$&');
-    var regex = new RegExp('(^' + query + ')', 'ig');
 
-    var result = "";
-    var parts = phrase.split(' ');
-    for (i = 0; i < parts.length; i += 1) {
-        if (i > 0) {
-            result += " ";
+    const regex = exports.build_highlight_regex(query);
+
+    return function (phrase) {
+        let result = "";
+        const parts = phrase.split(' ');
+        for (i = 0; i < parts.length; i += 1) {
+            if (i > 0) {
+                result += " ";
+            }
+            result += exports.highlight_with_escaping_and_regex(regex, parts[i]);
         }
-        result += exports.highlight_with_escaping_and_regex(regex, parts[i]);
-    }
-    return result;
+        return result;
+    };
 };
 
 exports.render_typeahead_item = function (args) {
@@ -78,7 +61,7 @@ exports.render_typeahead_item = function (args) {
     return render_typeahead_list_item(args);
 };
 
-var rendered = { persons: new Dict(), streams: new Dict(), user_groups: new Dict() };
+const rendered = { persons: new Dict(), streams: new Dict(), user_groups: new Dict() };
 
 exports.render_person = function (person) {
     if (person.special_item_text) {
@@ -88,11 +71,11 @@ exports.render_person = function (person) {
         });
     }
 
-    var html = rendered.persons.get(person.user_id);
+    let html = rendered.persons.get(person.user_id);
     if (html === undefined) {
-        var avatar_url = people.small_avatar_url_for_person(person);
+        const avatar_url = people.small_avatar_url_for_person(person);
 
-        var typeahead_arguments = {
+        const typeahead_arguments = {
             primary: person.full_name,
             img_src: avatar_url,
             is_person: true,
@@ -111,7 +94,7 @@ exports.clear_rendered_person = function (user_id) {
 };
 
 exports.render_user_group = function (user_group) {
-    var html = rendered.user_groups.get(user_group.id);
+    let html = rendered.user_groups.get(user_group.id);
     if (html === undefined) {
         html = exports.render_typeahead_item({
             primary: user_group.name,
@@ -126,10 +109,10 @@ exports.render_user_group = function (user_group) {
 
 exports.render_person_or_user_group = function (item) {
     if (user_groups.is_user_group(item)) {
-        return typeahead_helper.render_user_group(item);
+        return exports.render_user_group(item);
     }
 
-    return typeahead_helper.render_person(item);
+    return exports.render_person(item);
 };
 
 exports.clear_rendered_stream = function (stream_id) {
@@ -139,14 +122,14 @@ exports.clear_rendered_stream = function (stream_id) {
 };
 
 exports.render_stream = function (stream) {
-    var desc = stream.description;
-    var short_desc = desc.substring(0, 35);
+    let desc = stream.description;
+    const short_desc = desc.substring(0, 35);
 
     if (desc !== short_desc) {
         desc = short_desc + "...";
     }
 
-    var html = rendered.streams.get(stream.stream_id);
+    let html = rendered.streams.get(stream.stream_id);
     if (html === undefined) {
         html = exports.render_typeahead_item({
             primary: stream.name,
@@ -160,7 +143,7 @@ exports.render_stream = function (stream) {
 };
 
 exports.render_emoji = function (item) {
-    var args = {
+    const args = {
         is_emoji: true,
         primary: item.emoji_name.split("_").join(" "),
     };
@@ -175,9 +158,9 @@ exports.render_emoji = function (item) {
 // manipulate prefix_sort to select popular emojis first
 // This is kinda a hack and so probably not our long-term solution.
 function emoji_prefix_sort(query, objs, get_item) {
-    var prefix_sort = util.prefix_sort(query, objs, get_item);
-    var popular_emoji_matches = [];
-    var other_emoji_matches = [];
+    const prefix_sort = util.prefix_sort(query, objs, get_item);
+    const popular_emoji_matches = [];
+    const other_emoji_matches = [];
     prefix_sort.matches.forEach(function (obj) {
         if (emoji.frequently_used_emojis_list.indexOf(obj.emoji_code) !== -1) {
             popular_emoji_matches.push(obj);
@@ -189,13 +172,13 @@ function emoji_prefix_sort(query, objs, get_item) {
 }
 
 exports.sorter = function (query, objs, get_item) {
-    var results = util.prefix_sort(query, objs, get_item);
+    const results = util.prefix_sort(query, objs, get_item);
     return results.matches.concat(results.rest);
 };
 
 exports.compare_by_pms = function (user_a, user_b) {
-    var count_a = people.get_recipient_count(user_a);
-    var count_b = people.get_recipient_count(user_b);
+    const count_a = people.get_recipient_count(user_a);
+    const count_b = people.get_recipient_count(user_b);
 
     if (count_a > count_b) {
         return -1;
@@ -219,18 +202,31 @@ exports.compare_by_pms = function (user_a, user_b) {
     return 1;
 };
 
-function compare_for_at_mentioning(person_a, person_b, tertiary_compare, current_stream) {
+exports.compare_people_for_relevance = function (
+    person_a,
+    person_b,
+    tertiary_compare,
+    current_stream) {
+
     // give preference to "all", "everyone" or "stream"
-    if (person_a.email === "all" || person_a.email === "everyone" || person_a.email === "stream") {
+    // We use is_broadcast for a quick check.  It will
+    // true for all/everyone/stream and undefined (falsy)
+    // for actual people.
+    if (person_a.is_broadcast) {
+        if (person_b.is_broadcast) {
+            return person_a.idx - person_b.idx;
+        }
         return -1;
-    } else if (person_b.email === "all" || person_b.email === "everyone" || person_b.email === "stream") {
+    } else if (person_b.is_broadcast) {
         return 1;
     }
 
+    // Now handle actual people users.
+
     // give preference to subscribed users first
     if (current_stream !== undefined) {
-        var a_is_sub = stream_data.is_user_subscribed(current_stream, person_a.user_id);
-        var b_is_sub = stream_data.is_user_subscribed(current_stream, person_b.user_id);
+        const a_is_sub = stream_data.is_user_subscribed(current_stream, person_a.user_id);
+        const b_is_sub = stream_data.is_user_subscribed(current_stream, person_b.user_id);
 
         if (a_is_sub && !b_is_sub) {
             return -1;
@@ -240,8 +236,8 @@ function compare_for_at_mentioning(person_a, person_b, tertiary_compare, current
     }
 
     // give preference to pm partners if both (are)/(are not) subscribers
-    var a_is_partner = pm_conversations.is_partner(person_a.user_id);
-    var b_is_partner = pm_conversations.is_partner(person_b.user_id);
+    const a_is_partner = pm_conversations.is_partner(person_a.user_id);
+    const b_is_partner = pm_conversations.is_partner(person_b.user_id);
 
     if (a_is_partner && !b_is_partner) {
         return -1;
@@ -250,27 +246,27 @@ function compare_for_at_mentioning(person_a, person_b, tertiary_compare, current
     }
 
     return tertiary_compare(person_a, person_b);
-}
+};
 
-exports.sort_for_at_mentioning = function (objs, current_stream_name, current_topic) {
+exports.sort_people_for_relevance = function (objs, current_stream_name, current_topic) {
     // If sorting for recipientbox typeahead or compose state is private, then current_stream = ""
-    var current_stream = false;
+    let current_stream = false;
     if (current_stream_name) {
         current_stream = stream_data.get_sub(current_stream_name);
     }
     if (!current_stream) {
         objs.sort(function (person_a, person_b) {
-            return compare_for_at_mentioning(
+            return exports.compare_people_for_relevance(
                 person_a,
                 person_b,
                 exports.compare_by_pms
             );
         });
     } else {
-        var stream_id = current_stream.stream_id;
+        const stream_id = current_stream.stream_id;
 
         objs.sort(function (person_a, person_b) {
-            return compare_for_at_mentioning(
+            return exports.compare_people_for_relevance(
                 person_a,
                 person_b,
                 function (user_a, user_b) {
@@ -290,7 +286,7 @@ exports.sort_for_at_mentioning = function (objs, current_stream_name, current_to
 };
 
 exports.compare_by_popularity = function (lang_a, lang_b) {
-    var diff = pygments_data.langs[lang_b] - pygments_data.langs[lang_a];
+    const diff = pygments_data.langs[lang_b] - pygments_data.langs[lang_a];
     if (diff !== 0) {
         return diff;
     }
@@ -298,46 +294,105 @@ exports.compare_by_popularity = function (lang_a, lang_b) {
 };
 
 exports.sort_languages = function (matches, query) {
-    var results = util.prefix_sort(query, matches, function (x) { return x; });
+    const results = util.prefix_sort(query, matches, function (x) { return x; });
 
     // Languages that start with the query
     results.matches = results.matches.sort(exports.compare_by_popularity);
+
+    // Push exact matches to top.
+    const match_index = results.matches.indexOf(query);
+    if (match_index > -1) {
+        results.matches.splice(match_index, 1);
+        results.matches.unshift(query);
+    }
+
     // Languages that have the query somewhere in their name
     results.rest = results.rest.sort(exports.compare_by_popularity);
     return results.matches.concat(results.rest);
 };
 
-exports.sort_recipients = function (users, query, current_stream, current_topic, groups) {
-    var users_name_results =  util.prefix_sort(
-        query, users, function (x) { return x.full_name; });
-    var result = exports.sort_for_at_mentioning(
-        users_name_results.matches,
-        current_stream,
-        current_topic
-    );
+exports.sort_recipients = function (
+    users,
+    query,
+    current_stream,
+    current_topic,
+    groups,
+    max_num_items
+) {
 
-    var groups_results;
-    if (groups !== undefined) {
-        groups_results = util.prefix_sort(query, groups, function (x) { return x.name; });
-        result = result.concat(groups_results.matches);
+    if (!groups) {
+        groups = [];
     }
 
-    var email_results = util.prefix_sort(query, users_name_results.rest,
-                                         function (x) { return x.email; });
-    result = result.concat(exports.sort_for_at_mentioning(
-        email_results.matches,
-        current_stream,
-        current_topic
-    ));
-    var rest_sorted = exports.sort_for_at_mentioning(
-        email_results.rest,
-        current_stream,
-        current_topic
-    );
-    if (groups !== undefined) {
-        rest_sorted = rest_sorted.concat(groups_results.rest);
+    if (max_num_items === undefined) {
+        max_num_items = 20;
     }
-    return result.concat(rest_sorted);
+
+    function sort_relevance(items) {
+        return exports.sort_people_for_relevance(
+            items, current_stream, current_topic);
+    }
+
+    function partition(items, get_item) {
+        /*
+            The name for util.prefix_sort is quite
+            misleading.  It really just partitions a list
+            of items into two groups--good and bad.  But
+            for the goods, it puts case-senstitive matches
+            before case-insensitive matches, otherwise preserving
+            the original sort, so it's kinda like a sort
+            if you're starting with data that's most sorted
+            the way you want it.  And then we re-sort it, but
+            maybe sort_people_for_relevance is a stable sort?
+            And do we actually care whether matches are case
+            sensitive here?  I don't know.
+        */
+
+        return util.prefix_sort(query, items, get_item);
+    }
+
+    const users_name_results = partition(
+        users,
+        (p) => p.full_name);
+
+    const email_results = partition(
+        users_name_results.rest,
+        (p) => p.email);
+
+    const groups_results = partition(
+        groups,
+        (g) => g.name);
+
+    const best_users = () => sort_relevance(users_name_results.matches);
+    const best_groups = () => groups_results.matches;
+    const ok_users = () => sort_relevance(email_results.matches);
+    const worst_users = () => sort_relevance(email_results.rest);
+    const worst_groups = () => groups_results.rest;
+
+    const getters = [
+        best_users,
+        best_groups,
+        ok_users,
+        worst_users,
+        worst_groups,
+    ];
+
+    /*
+        The following optimization is important for large realms.
+        If we know we're only showing 5 suggestions, and we
+        get 5 matches from `best_users`, then we want to avoid
+        calling the expensives sorts for `ok_users` and `worst_users`,
+        since they just get dropped.
+    */
+
+    let items = [];
+    _.each(getters, (getter) => {
+        if (items.length < max_num_items) {
+            items = items.concat(getter());
+        }
+    });
+
+    return items.slice(0, max_num_items);
 };
 
 function slash_command_comparator(slash_command_a, slash_command_b) {
@@ -350,7 +405,7 @@ function slash_command_comparator(slash_command_a, slash_command_b) {
 exports.sort_slash_commands = function (matches, query) {
     // We will likely want to in the future make this sort the
     // just-`/` commands by something approximating usefulness.
-    var results = util.prefix_sort(query, matches, function (x) { return x.name; });
+    const results = util.prefix_sort(query, matches, function (x) { return x.name; });
     results.matches = results.matches.sort(slash_command_comparator);
     results.rest = results.rest.sort(slash_command_comparator);
     return results.matches.concat(results.rest);
@@ -358,13 +413,13 @@ exports.sort_slash_commands = function (matches, query) {
 
 exports.sort_emojis = function (matches, query) {
     // TODO: sort by category in v2
-    var results = emoji_prefix_sort(query, matches, function (x) { return x.emoji_name; });
+    const results = emoji_prefix_sort(query, matches, function (x) { return x.emoji_name; });
     return results.matches.concat(results.rest);
 };
 
 // Gives stream a score from 0 to 3 based on its activity
 function activity_score(sub) {
-    var stream_score = 0;
+    let stream_score = 0;
     if (!sub.subscribed) {
         stream_score = -1;
     } else {
@@ -382,7 +437,7 @@ function activity_score(sub) {
 // Sort streams by ranking them by activity. If activity is equal,
 // as defined bv activity_score, decide based on subscriber count.
 exports.compare_by_activity = function (stream_a, stream_b) {
-    var diff = activity_score(stream_b) - activity_score(stream_a);
+    let diff = activity_score(stream_b) - activity_score(stream_a);
     if (diff !== 0) {
         return diff;
     }
@@ -394,8 +449,8 @@ exports.compare_by_activity = function (stream_a, stream_b) {
 };
 
 exports.sort_streams = function (matches, query) {
-    var name_results = util.prefix_sort(query, matches, function (x) { return x.name; });
-    var desc_results
+    const name_results = util.prefix_sort(query, matches, function (x) { return x.name; });
+    const desc_results
         = util.prefix_sort(query, name_results.rest, function (x) { return x.description; });
 
     // Streams that start with the query.
@@ -410,35 +465,9 @@ exports.sort_streams = function (matches, query) {
 
 exports.sort_recipientbox_typeahead = function (query, matches, current_stream) {
     // input_text may be one or more pm recipients
-    var cleaned = exports.get_cleaned_pm_recipients(query);
+    const cleaned = exports.get_cleaned_pm_recipients(query);
     query = cleaned[cleaned.length - 1];
     return exports.sort_recipients(matches, query, current_stream);
 };
 
-exports.sort_people_and_user_groups = function (query, matches) {
-    var users = [];
-    var groups = [];
-    _.each(matches, function (match) {
-        if (user_groups.is_user_group(match)) {
-            groups.push(match);
-        } else {
-            users.push(match);
-        }
-    });
-
-    var recipients = typeahead_helper.sort_recipients(
-        users,
-        query,
-        compose_state.stream_name(),
-        compose_state.topic(),
-        groups);
-    return recipients;
-};
-
-return exports;
-
-}());
-if (typeof module !== 'undefined') {
-    module.exports = typeahead_helper;
-}
-window.typeahead_helper = typeahead_helper;
+window.typeahead_helper = exports;

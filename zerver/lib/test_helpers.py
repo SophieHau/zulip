@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 from typing import (
     Any, Callable, Dict, Generator, Iterable, Iterator, List, Mapping,
-    Optional, Tuple, Union, IO, TypeVar
+    Optional, Tuple, Union, IO, TypeVar, TYPE_CHECKING
 )
 
 from django.core import signing
@@ -38,7 +38,7 @@ from zerver.models import (
     UserProfile,
 )
 
-if False:
+if TYPE_CHECKING:
     # Avoid an import cycle; we only need these for type annotations.
     from zerver.lib.test_classes import ZulipTestCase, MigrationsTestCase
 
@@ -515,6 +515,9 @@ def use_db_models(method: Callable[..., None]) -> Callable[..., None]:  # nocove
         RealmEmoji = apps.get_model('zerver', 'RealmEmoji')
         RealmFilter = apps.get_model('zerver', 'RealmFilter')
         Recipient = apps.get_model('zerver', 'Recipient')
+        Recipient.PERSONAL = 1
+        Recipient.STREAM = 2
+        Recipient.HUDDLE = 3
         ScheduledEmail = apps.get_model('zerver', 'ScheduledEmail')
         ScheduledMessage = apps.get_model('zerver', 'ScheduledMessage')
         Service = apps.get_model('zerver', 'Service')
@@ -595,3 +598,9 @@ def use_db_models(method: Callable[..., None]) -> Callable[..., None]:  # nocove
                 zerver_test_classes_patch:
             method(self, apps)
     return method_patched_with_mock
+
+def create_dummy_file(filename: str) -> str:
+    filepath = os.path.join(settings.TEST_WORKER_DIR, filename)
+    with open(filepath, 'w') as f:
+        f.write('zulip!')
+    return filepath

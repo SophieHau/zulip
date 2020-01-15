@@ -4,7 +4,7 @@ set_global('blueslip', global.make_zblueslip());
 
 const noop = () => {};
 
-var form_data;
+let form_data;
 
 const _jQuery = {
     each: function (lst, f) {
@@ -83,7 +83,7 @@ run_test('unloaded', () => {
 });
 
 function simulate_tip_box() {
-    var non_editables = $.create('auth-methods-not-edit-stub');
+    const non_editables = $.create('auth-methods-not-edit-stub');
     $('.organization-box').set_find_results(
         '.settings-section:not(.can-edit)',
         non_editables
@@ -99,7 +99,7 @@ function simulate_realm_domains_table() {
         $.create('realm-tr-stub')
     );
 
-    var appended;
+    let appended;
     $("#realm_domains_table tbody").append = function (html) {
         appended = true;
         assert.equal(html, 'stub-domains-list');
@@ -111,7 +111,7 @@ function simulate_realm_domains_table() {
 }
 
 function test_realms_domain_modal(add_realm_domain) {
-    var info = $('.realm_domains_info');
+    const info = $('.realm_domains_info');
 
     $('#add-realm-domain-widget').set_find_results(
         '.new-realm-domain',
@@ -123,9 +123,9 @@ function test_realms_domain_modal(add_realm_domain) {
         $.create('new-realm-domain-allow-subdomains-stub')
     );
 
-    var posted;
-    var success_callback;
-    var error_callback;
+    let posted;
+    let success_callback;
+    let error_callback;
     channel.post = function (req) {
         posted = true;
         assert.equal(req.url, '/json/realm/domains');
@@ -280,7 +280,7 @@ function test_submit_settings_form(submit_form) {
         return "text";
     };
     const realm_default_twenty_four_hour_time_elem = $("#id_realm_default_twenty_four_hour_time");
-    realm_default_twenty_four_hour_time_elem.prop("checked", true);
+    realm_default_twenty_four_hour_time_elem.val('true');
     realm_default_twenty_four_hour_time_elem.attr('id', 'id_realm_default_twenty_four_hour_time');
     realm_default_twenty_four_hour_time_elem.data = () => {
         return "bool";
@@ -311,7 +311,7 @@ function test_submit_settings_form(submit_form) {
 }
 
 function test_change_save_button_state() {
-    var {
+    const {
         save_button_controls,
         save_button_text,
         save_button,
@@ -365,11 +365,11 @@ function test_upload_realm_icon(upload_realm_icon) {
         },
     };
 
-    var file_input = [
+    const file_input = [
         {files: ['image1.png', 'image2.png']},
     ];
 
-    var posted;
+    let posted;
     channel.post = function (req) {
         posted = true;
         assert.equal(req.url, '/json/realm/icon');
@@ -382,68 +382,18 @@ function test_upload_realm_icon(upload_realm_icon) {
     assert(posted);
 }
 
-function test_disable_notifications_stream(disable_notifications_stream) {
-    var success_callback;
-    var error_callback;
-    channel.patch = function (req) {
-        assert.equal(req.url, '/json/realm');
-        assert.equal(req.data.notifications_stream_id, '-1');
-        success_callback = req.success;
-        error_callback = req.error;
-    };
-
-    disable_notifications_stream();
-
-    var response_data = {
-        notifications_stream_id: -1,
-    };
-
-    success_callback(response_data);
-    assert.equal($('#admin-realm-notifications-stream-status').val(),
-                 'translated: Notifications stream disabled!');
-
-    error_callback({});
-    assert.equal($('#admin-realm-notifications-stream-status').val(),
-                 'translated: Failed to change notifications stream!');
-}
-
-function test_disable_signup_notifications_stream(disable_signup_notifications_stream) {
-    var success_callback;
-    var error_callback;
-    channel.patch = function (req) {
-        assert.equal(req.url, '/json/realm');
-        assert.equal(req.data.signup_notifications_stream_id, '-1');
-        success_callback = req.success;
-        error_callback = req.error;
-    };
-
-    disable_signup_notifications_stream();
-
-    var response_data = {
-        signup_notifications_stream_id: -1,
-    };
-
-    success_callback(response_data);
-    assert.equal($('#admin-realm-signup-notifications-stream-status').val(),
-                 'translated: Signup notifications stream disabled!');
-
-    error_callback({});
-    assert.equal($('#admin-realm-signup-notifications-stream-status').val(),
-                 'translated: Failed to change signup notifications stream!');
-}
-
 function test_change_allow_subdomains(change_allow_subdomains) {
-    var ev = {
+    const ev = {
         stopPropagation: noop,
     };
 
-    var info = $('.realm_domains_info');
+    const info = $('.realm_domains_info');
     info.fadeOut = noop;
-    var domain = 'example.com';
-    var allow = true;
+    const domain = 'example.com';
+    let allow = true;
 
-    var success_callback;
-    var error_callback;
+    let success_callback;
+    let error_callback;
     channel.patch = function (req) {
         assert.equal(req.url, '/json/realm/domains/example.com');
         assert.equal(req.data.allow_subdomains, JSON.stringify(allow));
@@ -451,12 +401,12 @@ function test_change_allow_subdomains(change_allow_subdomains) {
         error_callback = req.error;
     };
 
-    var domain_obj = $.create('domain object');
+    const domain_obj = $.create('domain object');
     domain_obj.text(domain);
 
 
-    var elem_obj = $.create('<elem html>');
-    var parents_obj = $.create('parents object');
+    const elem_obj = $.create('<elem html>');
+    const parents_obj = $.create('parents object');
 
     elem_obj.set_parents_result('tr', parents_obj);
     parents_obj.set_find_results('.domain', domain_obj);
@@ -793,8 +743,6 @@ run_test('set_up', () => {
     $('#id_realm_video_chat_provider').change = set_callback('realm_video_chat_provider');
     $("#id_realm_org_join_restrictions").change = set_callback('change_org_join_restrictions');
     $('#submit-add-realm-domain').click = set_callback('add_realm_domain');
-    $('.notifications-stream-disable').click = set_callback('disable_notifications_stream');
-    $('.signup-notifications-stream-disable').click = set_callback('disable_signup_notifications_stream');
 
     let submit_settings_form;
     let discard_changes;
@@ -838,6 +786,10 @@ run_test('set_up', () => {
     const allow_topic_edit_label_parent = $.create('allow-topic-edit-label-parent');
     $('#id_realm_allow_community_topic_editing_label').set_parent(allow_topic_edit_label_parent);
 
+    channel.get = function (opts) {
+        assert.equal(opts.url, '/json/export/realm');
+    };
+
     // TEST set_up() here, but this mostly just allows us to
     // get access to the click handlers.
     settings_org.maybe_disable_widgets = noop;
@@ -848,8 +800,6 @@ run_test('set_up', () => {
     test_realms_domain_modal(callbacks.add_realm_domain);
     test_submit_settings_form(submit_settings_form);
     test_upload_realm_icon(upload_realm_icon);
-    test_disable_notifications_stream(callbacks.disable_notifications_stream);
-    test_disable_signup_notifications_stream(callbacks.disable_signup_notifications_stream);
     test_change_allow_subdomains(change_allow_subdomains);
     test_extract_property_name();
     test_change_save_button_state();
@@ -863,7 +813,7 @@ run_test('set_up', () => {
 run_test('misc', () => {
     page_params.is_admin = false;
 
-    var stub_notification_disable_parent = $.create('<stub notification_disable parent');
+    const stub_notification_disable_parent = $.create('<stub notification_disable parent');
     stub_notification_disable_parent.set_find_results('.notification-disable',
                                                       $.create('<disable link>'));
 
@@ -932,7 +882,7 @@ run_test('misc', () => {
     settings_account.update_email_change_display();
     assert.equal($("#change_email .button").attr('disabled'), false);
 
-    var elem = $('#realm_notifications_stream_name');
+    let elem = $('#realm_notifications_stream_name');
     elem.closest = function () {
         return stub_notification_disable_parent;
     };
@@ -940,12 +890,12 @@ run_test('misc', () => {
         assert.equal(stream_id, 42);
         return { name: 'some_stream' };
     };
-    settings_org.render_notifications_stream_ui(42, elem);
+    settings_org.render_notifications_stream_ui(42, "notifications");
     assert.equal(elem.text(), '#some_stream');
     assert(!elem.hasClass('text-warning'));
 
     stream_data.get_sub_by_id = noop;
-    settings_org.render_notifications_stream_ui(undefined, elem);
+    settings_org.render_notifications_stream_ui(undefined, "notifications");
     assert.equal(elem.text(), 'translated: Disabled');
     assert(elem.hasClass('text-warning'));
 
@@ -957,12 +907,12 @@ run_test('misc', () => {
         assert.equal(stream_id, 75);
         return { name: 'some_stream' };
     };
-    settings_org.render_notifications_stream_ui(75, elem);
+    settings_org.render_notifications_stream_ui(75, "signup_notifications");
     assert.equal(elem.text(), '#some_stream');
     assert(!elem.hasClass('text-warning'));
 
     stream_data.get_sub_by_id = noop;
-    settings_org.render_notifications_stream_ui(undefined, elem);
+    settings_org.render_notifications_stream_ui(undefined, "signup_notifications");
     assert.equal(elem.text(), 'translated: Disabled');
     assert(elem.hasClass('text-warning'));
 

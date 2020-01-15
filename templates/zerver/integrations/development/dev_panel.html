@@ -1,11 +1,9 @@
 {% extends "zerver/portico.html" %}
+{% set entrypoint = "integrations-dev-panel" %}
 
 {% block customhead %}
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-{{ render_bundle('integrations-dev-panel') }}
-{{ render_bundle('portico') }}
-
 {% endblock %}
 
 
